@@ -144,7 +144,7 @@ static const char* version_check_res_str[n_version_check_res_] = {
 /// Empty public key list
 static const bl_pubkey_t empty_pubkey_list[] = {BL_PUBKEY_END_OF_LIST};
 // Inert set of public keys and signature thresholds
-const bl_pubkey_set_t bl_pubkey_set BL_ATTRS((weak)) = {
+const bl_pubkey_set_t bl_pubkey_set BL_WEAK = {
     .vendor_pubkeys = empty_pubkey_list,
     .vendor_pubkeys_size = sizeof(empty_pubkey_list),
     .maintainer_pubkeys = empty_pubkey_list,

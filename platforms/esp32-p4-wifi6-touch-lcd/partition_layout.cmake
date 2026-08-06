@@ -1,4 +1,4 @@
-# Canonical Phase 2 application partition sizes. Derive offsets and generated
+# Canonical ESP32-P4 application partition sizes. Derive offsets and generated
 # partition data from these values; do not duplicate their numeric values.
 set(SPECTER_ROOT_LOADER_PARTITION_SIZE 0x20000)
 set(SPECTER_BOOTLOADER_PARTITION_SIZE 0x100000)

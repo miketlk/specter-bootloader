@@ -57,6 +57,26 @@ while IFS=, read -r name type subtype offset size flags; do
   fi
 done < "$partition_csv"
 
+nvs_fields=$(awk -F, '
+  $1 ~ /^[[:space:]]*nvs[[:space:]]*$/ {
+    for (i = 1; i <= 6; i++) gsub(/[[:space:]]/, "", $i)
+    print $2 ":" $3 ":" $4 ":" $5 ":" $6
+  }' "$partition_csv")
+if [ "$nvs_fields" != "data:nvs:0x011000:0x00e000:" ]; then
+  echo "error: NVS must not use generic partition encryption" >&2
+  exit 1
+fi
+
+nvs_keys_fields=$(awk -F, '
+  $1 ~ /^[[:space:]]*nvs_keys[[:space:]]*$/ {
+    for (i = 1; i <= 6; i++) gsub(/[[:space:]]/, "", $i)
+    print $2 ":" $3 ":" $4 ":" $5 ":" $6
+  }' "$partition_csv")
+if [ "$nvs_keys_fields" != "data:nvs_keys:0x01f000:0x001000:encrypted" ]; then
+  echo "error: encrypted 4 KiB NVS key partition is missing" >&2
+  exit 1
+fi
+
 layout_metadata="$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-boot-a/partition-layout/layout.metadata"
 main_aux_size=$(awk -F= '$1 == "main_aux_size" {print $2}' "$layout_metadata")
 if [ -z "$main_aux_size" ]; then
@@ -74,7 +94,7 @@ elif ! rg -q '^[[:space:]]*main_aux[[:space:]]*,' "$partition_csv"; then
 fi
 
 for build in plaintext-dev-boot-a encrypted-production-boot-a; do
-  image="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/specter_esp32p4_phase2_validation.bin"
+  image="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/specter_esp32p4_bootloader.bin"
   image_bytes=$(wc -c < "$image")
   if [ "$image_bytes" -gt 1044480 ]; then
     echo "error: $build image consumes the reserved 4 KiB trailer" >&2
@@ -153,9 +173,9 @@ for build in plaintext-dev-boot-a plaintext-dev-boot-b plaintext-dev-main; do
   app_flash_args="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/app-flash_args"
   if ! rg -q "\"app\".*\"offset\"[[:space:]]*:[[:space:]]*\"$offset\"" \
       "$flasher_args" ||
-      ! rg -q "^$offset specter_esp32p4_phase2_validation[.]bin$" \
+      ! rg -q "^$offset specter_esp32p4_bootloader[.]bin$" \
       "$flash_args" ||
-      ! rg -q "^$offset specter_esp32p4_phase2_validation[.]bin$" \
+      ! rg -q "^$offset specter_esp32p4_bootloader[.]bin$" \
       "$app_flash_args"; then
     echo "error: $build does not flash its app at $offset" >&2
     exit 1
@@ -189,6 +209,19 @@ fi
 if ! rg -q '^# CONFIG_SECURE_FLASH_ENCRYPT_ONLY_IMAGE_LEN_IN_APP_PART is not set$' \
     "$repo_root/build/esp32-p4-wifi6-touch-lcd/encrypted-production-boot-a/partition-layout/sdkconfig"; then
   echo "error: encrypted-production-boot-a would leave application trailer space plaintext" >&2
+  exit 1
+fi
+
+encrypted_sdkconfig="$repo_root/build/esp32-p4-wifi6-touch-lcd/encrypted-production-boot-a/partition-layout/sdkconfig"
+encrypted_map="$repo_root/build/esp32-p4-wifi6-touch-lcd/encrypted-production-boot-a/specter_esp32p4_bootloader.map"
+if ! rg -q '^CONFIG_NVS_ENCRYPTION=y$' "$encrypted_sdkconfig" ||
+    ! rg -q '^CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y$' \
+      "$encrypted_sdkconfig"; then
+  echo "error: encrypted-production-boot-a lacks flash-protected NVS encryption" >&2
+  exit 1
+fi
+if ! rg -q 'nvs_sec_provider_register_flash_enc_scheme' "$encrypted_map"; then
+  echo "error: encrypted-production-boot-a did not link the NVS security provider" >&2
   exit 1
 fi
 

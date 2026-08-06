@@ -1,10 +1,16 @@
 #!/bin/sh
 set -eu
 
+# This project has no managed components. Avoid the component manager's psutil
+# process-tree lookup, which is unnecessary and blocked by macOS sandboxes.
+export IDF_COMPONENT_MANAGER=0
+
 platform_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 repo_root=$(CDPATH= cd -- "$platform_dir/../.." && pwd -P)
 profile=${1:-plaintext-dev}
 target=${2:-boot-a}
+board=${SPECTER_BOARD:-4p3}
+keys=${SPECTER_KEYS:-test}
 allow_irreversible_config=OFF
 
 if [ "$#" -ge 1 ]; then shift; fi
@@ -44,7 +50,20 @@ case "$target" in
     ;;
 esac
 
-build_dir="$repo_root/build/esp32-p4-wifi6-touch-lcd/$profile-$target"
+case "$board" in
+  4p3|5) ;;
+  *)
+    echo "error: SPECTER_BOARD must be 4p3 or 5" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$board" = 4p3 ]; then
+  # Preserve the Phase 2 build-directory ABI used by validation evidence.
+  build_dir="$repo_root/build/esp32-p4-wifi6-touch-lcd/$profile-$target"
+else
+  build_dir="$repo_root/build/esp32-p4-wifi6-touch-lcd/$profile-$board-$target"
+fi
 layout_dir="$build_dir/partition-layout"
 
 cmake \
@@ -52,7 +71,7 @@ cmake \
   -D "SPECTER_LAYOUT_OUTPUT_DIR=$layout_dir" \
   -P "$platform_dir/tools/generate-partition-layout.cmake"
 
-defaults="$platform_dir/sdkconfig.defaults;$flash_defaults;$lockdown_defaults;$platform_dir/sdkconfig.defaults.root-$target;$layout_dir/sdkconfig.defaults"
+defaults="$platform_dir/sdkconfig.defaults;$platform_dir/sdkconfig.defaults.board-$board;$flash_defaults;$lockdown_defaults;$platform_dir/sdkconfig.defaults.root-$target;$layout_dir/sdkconfig.defaults"
 
 exec "$platform_dir/tools/idf.sh" \
   -C "$platform_dir" \
@@ -60,4 +79,5 @@ exec "$platform_dir/tools/idf.sh" \
   -D "SDKCONFIG=$layout_dir/sdkconfig" \
   -D "SDKCONFIG_DEFAULTS=$defaults" \
   -D "SPECTER_ALLOW_IRREVERSIBLE_CONFIG=$allow_irreversible_config" \
+  -D "SPECTER_KEYS=$keys" \
   "$@"

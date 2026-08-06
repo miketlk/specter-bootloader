@@ -1,0 +1,10 @@
+choice SPECTER_BOARD
+    prompt "Waveshare ESP32-P4 Touch LCD board"
+    default SPECTER_BOARD_LCD_4P3
+
+    config SPECTER_BOARD_LCD_4P3
+        bool "ESP32-P4-WIFI6-Touch-LCD-4.3"
+
+    config SPECTER_BOARD_LCD_5
+        bool "ESP32-P4-WIFI6-Touch-LCD-5"
+endchoice

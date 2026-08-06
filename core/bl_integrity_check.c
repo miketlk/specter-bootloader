@@ -44,8 +44,8 @@ BL_STATIC_NO_TEST bool icr_struct_create_main(bl_integrity_check_rec_t* p_icr,
   return false;
 }
 
-bool bl_icr_create(bl_addr_t sect_addr, uint32_t sect_size, uint32_t pl_size,
-                   uint32_t pl_ver) {
+BL_WEAK bool bl_icr_create(bl_addr_t sect_addr, uint32_t sect_size,
+                        uint32_t pl_size, uint32_t pl_ver) {
   if (bl_icr_check_sect_size(sect_size, pl_size)) {
     bl_integrity_check_rec_t icr;
     bl_addr_t icr_addr = sect_addr + sect_size - BL_ICR_OFFSET_FROM_END;
@@ -111,8 +111,8 @@ static bool icr_get(bl_integrity_check_rec_t* p_icr, bl_addr_t sect_addr,
   return false;
 }
 
-bool bl_icr_verify(bl_addr_t sect_addr, uint32_t sect_size,
-                   uint32_t* p_pl_ver) {
+BL_WEAK bool bl_icr_verify(bl_addr_t sect_addr, uint32_t sect_size,
+                        uint32_t* p_pl_ver) {
   if (sect_size) {
     if (p_pl_ver) {
       *p_pl_ver = BL_VERSION_NA;
@@ -129,8 +129,8 @@ bool bl_icr_verify(bl_addr_t sect_addr, uint32_t sect_size,
   return false;
 }
 
-bool bl_icr_get_version(bl_addr_t sect_addr, uint32_t sect_size,
-                        uint32_t* p_pl_ver) {
+BL_WEAK bool bl_icr_get_version(bl_addr_t sect_addr, uint32_t sect_size,
+                             uint32_t* p_pl_ver) {
   if (sect_size && p_pl_ver) {
     *p_pl_ver = BL_VERSION_NA;
     bl_integrity_check_rec_t icr;
@@ -142,7 +142,7 @@ bool bl_icr_get_version(bl_addr_t sect_addr, uint32_t sect_size,
   return false;
 }
 
-bool bl_icr_check_sect_size(uint32_t sect_size, uint32_t pl_size) {
+BL_WEAK bool bl_icr_check_sect_size(uint32_t sect_size, uint32_t pl_size) {
   return (sect_size && pl_size && sect_size <= BL_ADDR_MAX - sect_size &&
           pl_size <= UINT32_MAX - BL_FW_SECT_OVERHEAD &&
           pl_size + BL_FW_SECT_OVERHEAD <= sect_size);
@@ -182,8 +182,8 @@ static bool vcr_get(bl_version_check_rec_t* p_vcr, bl_addr_t vcr_addr) {
   return false;
 }
 
-bool bl_vcr_create(bl_addr_t sect_addr, uint32_t sect_size, uint32_t pl_ver,
-                   bl_vcr_place_t place) {
+BL_WEAK bool bl_vcr_create(bl_addr_t sect_addr, uint32_t sect_size,
+                        uint32_t pl_ver, bl_vcr_place_t place) {
   if (sect_size && sect_size > BL_FW_SECT_OVERHEAD &&
       sect_size > BL_VCR_OFFSET_FROM_END &&
       sect_addr < BL_ADDR_MAX - sect_size && pl_ver <= BL_VERSION_MAX &&
@@ -206,8 +206,8 @@ bool bl_vcr_create(bl_addr_t sect_addr, uint32_t sect_size, uint32_t pl_ver,
   return false;
 }
 
-uint32_t bl_vcr_get_version(bl_addr_t sect_addr, uint32_t sect_size,
-                            bl_vcr_place_t place) {
+BL_WEAK uint32_t bl_vcr_get_version(bl_addr_t sect_addr, uint32_t sect_size,
+                                 bl_vcr_place_t place) {
   uint32_t version = BL_VERSION_NA;
   if (sect_size && sect_size > BL_FW_SECT_OVERHEAD &&
       sect_size > BL_VCR_OFFSET_FROM_END &&

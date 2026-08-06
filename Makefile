@@ -1,5 +1,6 @@
 # List of all supported platforms
-PLATFORMS = stm32f469disco testbench
+PLATFORMS = stm32f469disco testbench \
+	esp32-p4-wifi6-touch-lcd-4p3 esp32-p4-wifi6-touch-lcd-5
 
 # Select target platform by first argument
 FIRST_ARG = $(firstword $(MAKECMDGOALS))
@@ -39,3 +40,13 @@ stm32f469disco:
 testbench:
 	$(shell echo Test Bench)
 	@$(MAKE) -f $(BOOTLOADER_MAKEFILE) $(RUN_ARGS) TARGET_PLATFORM=$(TARGET_PLATFORM)
+
+esp32-p4-wifi6-touch-lcd-4p3:
+	@test -f keys/$(KEYS)/pubkeys.c || (echo ERROR: keys/$(KEYS)/pubkeys.c does not exist; exit 1;)
+	@SPECTER_BOARD=4p3 SPECTER_KEYS=$(KEYS) \
+		platforms/esp32-p4-wifi6-touch-lcd/tools/build.sh plaintext-dev boot-a $(RUN_ARGS) build
+
+esp32-p4-wifi6-touch-lcd-5:
+	@test -f keys/$(KEYS)/pubkeys.c || (echo ERROR: keys/$(KEYS)/pubkeys.c does not exist; exit 1;)
+	@SPECTER_BOARD=5 SPECTER_KEYS=$(KEYS) \
+		platforms/esp32-p4-wifi6-touch-lcd/tools/build.sh plaintext-dev boot-a $(RUN_ARGS) build

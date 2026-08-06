@@ -1,0 +1,11 @@
+if(NOT DEFINED SPECTER_IMAGE OR NOT DEFINED SPECTER_MAX_IMAGE_SIZE)
+    message(FATAL_ERROR "image path and maximum size are required")
+endif()
+if(NOT EXISTS "${SPECTER_IMAGE}")
+    message(FATAL_ERROR "application image was not generated: ${SPECTER_IMAGE}")
+endif()
+file(SIZE "${SPECTER_IMAGE}" image_size)
+if(image_size GREATER SPECTER_MAX_IMAGE_SIZE)
+    message(FATAL_ERROR
+        "application image (${image_size} bytes) overlaps reserved trailer; maximum is ${SPECTER_MAX_IMAGE_SIZE}")
+endif()

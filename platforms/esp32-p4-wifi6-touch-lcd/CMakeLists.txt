@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Keep the Phase 2 validation application deliberately small. The custom
-# second-stage loader is discovered separately through bootloader_components/.
+# The shared Specter application is one component. Its explicit dependencies
+# keep board networking, camera, audio, and LVGL outside the bootloader image.
 set(COMPONENTS main)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(specter_esp32p4_phase2_validation)
+project(specter_esp32p4_bootloader)
 
 include("${CMAKE_CURRENT_LIST_DIR}/partition_layout.cmake")
 
@@ -63,6 +63,20 @@ if(NOT specter_validation_offset_delta EQUAL 0)
 endif()
 idf_build_get_property(specter_build_dir BUILD_DIR)
 set(specter_project_bin "${PROJECT_BIN}")
+if(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_MAIN)
+    math(EXPR specter_max_image_size
+         "${SPECTER_MAIN_PARTITION_SIZE} - 0x1000")
+else()
+    math(EXPR specter_max_image_size
+         "${SPECTER_BOOTLOADER_PARTITION_SIZE} - 0x1000")
+endif()
+add_custom_target(specter_app_size_check ALL
+    COMMAND ${CMAKE_COMMAND}
+        -D "SPECTER_IMAGE=${specter_build_dir}/${specter_project_bin}"
+        -D "SPECTER_MAX_IMAGE_SIZE=${specter_max_image_size}"
+        -P "${CMAKE_CURRENT_LIST_DIR}/tools/check-app-size.cmake"
+    DEPENDS gen_project_binary
+    COMMENT "Checking that the ESP image cannot overlap its approval trailer")
 
 function(specter_remove_default_app target_name)
     foreach(property_name FLASH_FILE FLASH_ENTRY IMAGES)

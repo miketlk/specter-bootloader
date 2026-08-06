@@ -19,6 +19,21 @@ configure_file(
     "${SPECTER_PLATFORM_DIR}/partitions.csv.in"
     "${SPECTER_PARTITION_CSV}"
     @ONLY)
+file(READ "${SPECTER_PARTITION_CSV}" partition_csv_contents)
+string(REGEX REPLACE "\n+$" "\n" partition_csv_contents
+       "${partition_csv_contents}")
+file(WRITE "${SPECTER_PARTITION_CSV}" "${partition_csv_contents}")
+# The checked-in map is reviewable release input. Keep it mechanically equal
+# to the generated layout so changes cannot silently drift from compiled data.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E compare_files
+            "${SPECTER_PARTITION_CSV}"
+            "${SPECTER_PLATFORM_DIR}/partitions.csv"
+    RESULT_VARIABLE partition_map_differs)
+if(partition_map_differs)
+    message(FATAL_ERROR
+        "generated partition layout differs from checked-in partitions.csv")
+endif()
 file(WRITE "${SPECTER_LAYOUT_OUTPUT_DIR}/layout.metadata"
     "main_aux_size=${SPECTER_MAIN_AUX_PARTITION_SIZE}\n")
 configure_file(

@@ -18,26 +18,20 @@
 #define PLATFORM_ID "unknown"
 #endif
 
-#ifdef WEAK
-#undef WEAK
-#endif
-/// Adds "weak" attribute
-#define WEAK BL_ATTRS((weak))
-
 /// Inert flash memory map
-const bl_addr_t bl_flash_map[bl_flash_map_nitems] WEAK = {
+const bl_addr_t bl_flash_map[bl_flash_map_nitems] BL_WEAK = {
     [bl_flash_firmware_base] = BL_ADDR_MAX};  // Marker of inert table
 
-WEAK const char* blsys_platform_id(void) {
+BL_WEAK const char* blsys_platform_id(void) {
   static const char* platform_id_ = PLATFORM_ID;
   return platform_id_;
 }
 
-WEAK bool blsys_init(void) { return true; }
+BL_WEAK bool blsys_init(void) { return true; }
 
-WEAK void blsys_deinit(void) {}
+BL_WEAK void blsys_deinit(void) {}
 
-WEAK bool blsys_flash_map_get_items(int items, ...) {
+BL_WEAK bool blsys_flash_map_get_items(int items, ...) {
   if (BL_ADDR_MAX == bl_flash_map[bl_flash_firmware_base]) {
     // Inert flash memory map is detected!
     // User code must re-define bl_flash_map[] or blsys_flash_map_get_items()
@@ -60,17 +54,17 @@ WEAK bool blsys_flash_map_get_items(int items, ...) {
   return true;
 }
 
-WEAK bool blsys_flash_erase(bl_addr_t addr, size_t size) { return false; }
+BL_WEAK bool blsys_flash_erase(bl_addr_t addr, size_t size) { return false; }
 
-WEAK bool blsys_flash_read(bl_addr_t addr, void* buf, size_t len) {
+BL_WEAK bool blsys_flash_read(bl_addr_t addr, void* buf, size_t len) {
   return false;
 }
 
-WEAK bool blsys_flash_write(bl_addr_t addr, const void* buf, size_t len) {
+BL_WEAK bool blsys_flash_write(bl_addr_t addr, const void* buf, size_t len) {
   return false;
 }
 
-WEAK bool blsys_flash_crc32(uint32_t* p_crc, bl_addr_t addr, size_t len) {
+BL_WEAK bool blsys_flash_crc32(uint32_t* p_crc, bl_addr_t addr, size_t len) {
   if (p_crc && len) {
     uint8_t buf[128];
     size_t rm_bytes = len;
@@ -90,32 +84,33 @@ WEAK bool blsys_flash_crc32(uint32_t* p_crc, bl_addr_t addr, size_t len) {
   return false;
 }
 
-WEAK bool blsys_flash_write_protect(bl_addr_t addr, size_t size, bool enable) {
+BL_WEAK bool blsys_flash_write_protect(bl_addr_t addr, size_t size,
+                                       bool enable) {
   return true;
 }
 
-WEAK bool blsys_flash_read_protect(int level) { return true; }
+BL_WEAK bool blsys_flash_read_protect(int level) { return true; }
 
-WEAK int blsys_flash_get_read_protection_level(void) { return -1; };
+BL_WEAK int blsys_flash_get_read_protection_level(void) { return -1; };
 
-WEAK uint32_t blsys_media_devices(void) { return 1U; }
+BL_WEAK uint32_t blsys_media_devices(void) { return 1U; }
 
-WEAK const char* blsys_media_name(uint32_t device_idx) {
+BL_WEAK const char* blsys_media_name(uint32_t device_idx) {
   static const char* unknown = "unknown";
   return unknown;
 }
 
-WEAK bool blsys_media_check(uint32_t device_idx) {
+BL_WEAK bool blsys_media_check(uint32_t device_idx) {
   return (0U == device_idx) ? true : false;
 }
 
-WEAK bool blsys_media_mount(uint32_t device_idx) {
+BL_WEAK bool blsys_media_mount(uint32_t device_idx) {
   return (0U == device_idx) ? true : false;
 }
 
-WEAK void blsys_media_umount(void) {}
+BL_WEAK void blsys_media_umount(void) {}
 
-WEAK const char* blsys_ffind_first(bl_ffind_ctx_t* ctx, const char* path,
+BL_WEAK const char* blsys_ffind_first(bl_ffind_ctx_t* ctx, const char* path,
                                    const char* pattern) {
 #ifndef BL_NO_FATFS
   if (ctx && path && pattern) {
@@ -132,7 +127,7 @@ WEAK const char* blsys_ffind_first(bl_ffind_ctx_t* ctx, const char* path,
   return NULL;
 }
 
-WEAK const char* blsys_ffind_next(bl_ffind_ctx_t* ctx) {
+BL_WEAK const char* blsys_ffind_next(bl_ffind_ctx_t* ctx) {
 #ifndef BL_NO_FATFS
   if (ctx) {
     // Only 8 bit encodings are supported
@@ -147,7 +142,7 @@ WEAK const char* blsys_ffind_next(bl_ffind_ctx_t* ctx) {
   return NULL;
 }
 
-WEAK void blsys_ffind_close(bl_ffind_ctx_t* ctx) {
+BL_WEAK void blsys_ffind_close(bl_ffind_ctx_t* ctx) {
 #ifndef BL_NO_FATFS
   if (ctx) {
     f_closedir(&ctx->dj);
@@ -170,7 +165,7 @@ static int get_fatfs_mode(const char* mode) {
   return -1;
 }
 
-WEAK bl_file_t blsys_fopen(bl_file_obj_t* p_file_obj, const char* filename,
+BL_WEAK bl_file_t blsys_fopen(bl_file_obj_t* p_file_obj, const char* filename,
                            const char* mode) {
 #ifndef BL_NO_FATFS
   if (p_file_obj && filename && mode && sizeof(char) == sizeof(TCHAR)) {
@@ -185,7 +180,8 @@ WEAK bl_file_t blsys_fopen(bl_file_obj_t* p_file_obj, const char* filename,
   return NULL;
 }
 
-WEAK size_t blsys_fread(void* ptr, size_t size, size_t count, bl_file_t file) {
+BL_WEAK size_t blsys_fread(void* ptr, size_t size, size_t count,
+                           bl_file_t file) {
 #ifndef BL_NO_FATFS
   if (ptr && size && count && file) {
     UINT bytes_read = 0U;
@@ -197,7 +193,7 @@ WEAK size_t blsys_fread(void* ptr, size_t size, size_t count, bl_file_t file) {
   return 0U;
 }
 
-WEAK bl_foffset_t blsys_ftell(bl_file_t file) {
+BL_WEAK bl_foffset_t blsys_ftell(bl_file_t file) {
 #ifndef BL_NO_FATFS
   if (file) {
     return (bl_foffset_t)f_tell(file);
@@ -206,7 +202,7 @@ WEAK bl_foffset_t blsys_ftell(bl_file_t file) {
   return -1;
 }
 
-WEAK int blsys_fseek(bl_file_t file, bl_foffset_t offset, int origin) {
+BL_WEAK int blsys_fseek(bl_file_t file, bl_foffset_t offset, int origin) {
 #ifndef BL_NO_FATFS
   if (file) {
     bl_foffset_t new_pos = -1;
@@ -231,7 +227,7 @@ WEAK int blsys_fseek(bl_file_t file, bl_foffset_t offset, int origin) {
   return -1;  // Failed
 }
 
-WEAK bl_fsize_t blsys_fsize(bl_file_t file) {
+BL_WEAK bl_fsize_t blsys_fsize(bl_file_t file) {
 #ifndef BL_NO_FATFS
   if (file) {
     return (bl_fsize_t)f_size(file);
@@ -240,7 +236,7 @@ WEAK bl_fsize_t blsys_fsize(bl_file_t file) {
   return 0U;
 }
 
-WEAK int blsys_feof(bl_file_t file) {
+BL_WEAK int blsys_feof(bl_file_t file) {
 #ifndef BL_NO_FATFS
   if (file) {
     return f_eof(file);
@@ -249,7 +245,7 @@ WEAK int blsys_feof(bl_file_t file) {
   return -1;
 }
 
-WEAK int blsys_fclose(bl_file_t file) {
+BL_WEAK int blsys_fclose(bl_file_t file) {
 #ifndef BL_NO_FATFS
   if (file) {
     if (FR_OK == f_close(file)) {
@@ -269,9 +265,10 @@ BL_ATTRS((weak, noreturn)) void blsys_fatal_error(const char* text) {
   }
 }
 
-WEAK bl_alert_status_t blsys_alert(blsys_alert_type_t type, const char* caption,
-                                   const char* text, uint32_t time_ms,
-                                   uint32_t flags) {
+BL_WEAK bl_alert_status_t blsys_alert(blsys_alert_type_t type,
+                                      const char* caption,
+                                      const char* text, uint32_t time_ms,
+                                      uint32_t flags) {
   if (bl_alert_error == type || BL_FOREVER == time_ms) {
     blsys_media_umount();
     blsys_deinit();
@@ -282,5 +279,5 @@ WEAK bl_alert_status_t blsys_alert(blsys_alert_type_t type, const char* caption,
   return bl_alert_terminated;
 }
 
-WEAK void blsys_progress(const char* caption, const char* operation,
-                         uint32_t percent_x100) {}
+BL_WEAK void blsys_progress(const char* caption, const char* operation,
+                            uint32_t percent_x100) {}

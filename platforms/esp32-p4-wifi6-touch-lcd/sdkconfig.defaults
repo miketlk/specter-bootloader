@@ -1,4 +1,4 @@
-# ESP-IDF v5.5.5 / ESP32-P4 Phase 2 common validation configuration.
+# ESP-IDF v5.5.5 / ESP32-P4 shared platform configuration.
 CONFIG_IDF_TARGET="esp32p4"
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_1=y
@@ -9,7 +9,8 @@ CONFIG_PARTITION_TABLE_MD5=y
 
 # Use a portable 16 MiB logical flash window. ESP-IDF rejects a physical chip
 # smaller than the image header, accepts larger chips, and leaves their extra
-# capacity unused. Do not let esptool rewrite the header for a particular unit.
+# capacity unused. Do not let esptool rewrite the header for a particular unit;
+# ESP-IDF then retains the appended SHA-256 validation hash bound by approval.
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 # CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE is not set
@@ -21,6 +22,8 @@ CONFIG_CACHE_L2_CACHE_256KB=y
 CONFIG_CACHE_L2_CACHE_LINE_128B=y
 
 CONFIG_APP_REPRODUCIBLE_BUILD=y
+CONFIG_APP_COMPILE_TIME_DATE=n
+CONFIG_APP_RETRIEVE_LEN_ELF_SHA=16
 CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_BOOTLOADER_WDT_ENABLE=y
 

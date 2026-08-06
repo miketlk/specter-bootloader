@@ -22,6 +22,9 @@
 #define BL_ATTRS(x)
 #endif
 
+/// Declares a default definition that a platform may override.
+#define BL_WEAK BL_ATTRS((weak))
+
 /// Text of internal error
 #define BL_INTERNAL_ERROR "internal error"
 

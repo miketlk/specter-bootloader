@@ -10,9 +10,9 @@
 
 static const char* TAG = "specter-ui";
 
-bool specter_esp32p4_gui_init(void) { return true; }
+bool specter_esp32p4_gui_init(void) { return specter_esp32p4_board_init(); }
 
-void specter_esp32p4_gui_deinit(void) {}
+void specter_esp32p4_gui_deinit(void) { specter_esp32p4_board_deinit(); }
 
 void specter_esp32p4_gui_alert(int type, const char* caption,
                                const char* text) {

@@ -27,6 +27,16 @@ set(platform_sources
     "${platform_dir}/common/esp32p4_reset.c"
     "${platform_dir}/common/esp32p4_trailer.c")
 
+if(CONFIG_SPECTER_BOARD_LCD_4P3)
+    list(APPEND platform_sources
+        "${platform_dir}/lcd-4p3/board_display.c")
+    set(board_include_dir "${platform_dir}/lcd-4p3")
+else()
+    list(APPEND platform_sources
+        "${platform_dir}/common/esp32p4_board_stub.c")
+    set(board_include_dir "${platform_dir}/common")
+endif()
+
 idf_component_register(
     SRCS
         "main.c"
@@ -41,6 +51,7 @@ idf_component_register(
         "${key_source}"
     INCLUDE_DIRS
         "."
+        "${board_include_dir}"
         "${platform_dir}/common"
         "${repo_root}/core"
         "${repo_root}/core/secp256k1_add"
@@ -53,12 +64,22 @@ idf_component_register(
     REQUIRES
         app_update
         bootloader_support
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_driver_ledc
+        esp_hw_support
+        esp_lcd
         esp_partition
         fatfs
         nvs_flash
         nvs_sec_provider
         sdmmc
-        spi_flash)
+        spi_flash
+    # The core supplies weak platform defaults in the same archive as strong
+    # platform/key overrides. Retain every application object so the linker
+    # resolves those overrides instead of satisfying references internally
+    # from the weak defaults.
+    WHOLE_ARCHIVE)
 
 include("${platform_dir}/partition_layout.cmake")
 target_compile_definitions(${COMPONENT_LIB} PRIVATE

@@ -58,6 +58,12 @@ void specter_esp32p4_candidate_committed(specter_esp32p4_role_t role);
 /// Returns the configured board platform identifier.
 const char* specter_esp32p4_platform_id(void);
 
+/// Initializes the selected board's display, backlight, and touch probe.
+bool specter_esp32p4_board_init(void);
+
+/// Releases resources acquired by specter_esp32p4_board_init().
+void specter_esp32p4_board_deinit(void);
+
 /// Initializes board-independent GUI forwarding; Phase 6 supplies hardware UI.
 bool specter_esp32p4_gui_init(void);
 

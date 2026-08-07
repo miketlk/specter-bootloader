@@ -31,6 +31,11 @@ if(CONFIG_SPECTER_BOARD_LCD_4P3)
     list(APPEND platform_sources
         "${platform_dir}/lcd-4p3/board_display.c")
     set(board_include_dir "${platform_dir}/lcd-4p3")
+elseif(CONFIG_SPECTER_BOARD_LCD_5)
+    list(APPEND platform_sources
+        "${platform_dir}/lcd-5/board_display.c"
+        "${platform_dir}/lcd-5/esp_lcd_hx8394.c")
+    set(board_include_dir "${platform_dir}/lcd-5")
 else()
     list(APPEND platform_sources
         "${platform_dir}/common/esp32p4_board_stub.c")

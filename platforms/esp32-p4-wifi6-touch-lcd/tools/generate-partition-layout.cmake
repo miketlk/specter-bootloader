@@ -35,6 +35,8 @@ if(partition_map_differs)
         "generated partition layout differs from checked-in partitions.csv")
 endif()
 file(WRITE "${SPECTER_LAYOUT_OUTPUT_DIR}/layout.metadata"
+    "main_partition_size=${SPECTER_MAIN_PARTITION_SIZE}\n"
+    "trailer_size=${SPECTER_ESP32P4_TRAILER_SIZE}\n"
     "main_aux_size=${SPECTER_MAIN_AUX_PARTITION_SIZE}\n")
 configure_file(
     "${SPECTER_PLATFORM_DIR}/sdkconfig.defaults.layout.in"

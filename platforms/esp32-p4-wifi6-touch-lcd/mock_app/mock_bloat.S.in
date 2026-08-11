@@ -1,0 +1,10 @@
+/* Constant, flash-resident mock payload generated at configure time. */
+.section .specter_mock_bloat,"a",@progbits
+.balign 1
+.global specter_mock_bloat_start
+.global specter_mock_bloat_end
+.type specter_mock_bloat_start,@object
+specter_mock_bloat_start:
+.fill @SPECTER_MOCK_BLOAT_BYTES@, 1, 0xA5
+specter_mock_bloat_end:
+.size specter_mock_bloat_start, specter_mock_bloat_end - specter_mock_bloat_start

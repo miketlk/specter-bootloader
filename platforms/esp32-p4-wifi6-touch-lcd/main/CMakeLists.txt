@@ -31,6 +31,7 @@ list(APPEND platform_sources
     "${platform_dir}/common/touch_decode.c"
     "${platform_dir}/common/touch_hal.c"
     "${platform_dir}/common/ui_prompts.c"
+    "${repo_root}/platforms/stm32f469disco/Utilities/Fonts/font12.c"
     "${repo_root}/platforms/stm32f469disco/Utilities/Fonts/font20.c")
 
 if(CONFIG_SPECTER_BOARD_LCD_4P3)

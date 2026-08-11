@@ -12,4 +12,3 @@ tools/requirements.in
 /platforms/esp32-p4-wifi6-touch-lcd/sdkconfig
 /platforms/esp32-p4-wifi6-touch-lcd/sdkconfig.old
 /platforms/esp32-p4-wifi6-touch-lcd/managed_components/
-/platforms/esp32-p4-wifi6-touch-lcd/dependencies.lock

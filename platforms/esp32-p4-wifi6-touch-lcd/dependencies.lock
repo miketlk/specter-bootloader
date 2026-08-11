@@ -1,0 +1,20 @@
+dependencies:
+  espressif/cbor:
+    component_hash: 61472e5fd6e7952f1e229fac85797e0bf06864bde0a17aafa3ee6e672d10326d
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.6.0
+  idf:
+    source:
+      type: idf
+    version: 5.5.5
+direct_dependencies:
+- espressif/cbor
+manifest_hash: 9933c0c2c9773a10a251e2ef9b6bcb842d9c05bc5a8ac27e1ed0b0b8ed8c4d3d
+target: esp32p4
+version: 2.0.0

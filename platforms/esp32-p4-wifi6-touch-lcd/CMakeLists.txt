@@ -2,10 +2,25 @@ cmake_minimum_required(VERSION 3.22)
 
 # The shared Specter application is one component. Its explicit dependencies
 # keep board networking, camera, audio, and LVGL outside the bootloader image.
-set(COMPONENTS main)
+if(NOT DEFINED SPECTER_APP)
+    set(SPECTER_APP bootloader)
+endif()
+if(SPECTER_APP STREQUAL "bootloader")
+    set(COMPONENTS main)
+elseif(SPECTER_APP STREQUAL "mock-main")
+    set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/mock_app")
+    set(COMPONENTS mock_app)
+else()
+    message(FATAL_ERROR "SPECTER_APP must be bootloader or mock-main")
+endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(specter_esp32p4_bootloader)
+if(SPECTER_APP STREQUAL "mock-main")
+    set(PROJECT_VER "1.0.0")
+    project(specter_esp32p4_mock_main)
+else()
+    project(specter_esp32p4_bootloader)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/partition_layout.cmake")
 
@@ -39,12 +54,21 @@ endif()
 # Loader for one exact validation target, so keep the standard flash/app-flash
 # targets but move their application entry to the matching fixed role.
 if(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_BOOT_A)
+    if(NOT SPECTER_APP STREQUAL "bootloader")
+        message(FATAL_ERROR "boot_a requires the bootloader app")
+    endif()
     set(specter_validation_partition boot_a)
     set(specter_expected_validation_offset ${SPECTER_BOOT_A_OFFSET})
 elseif(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_BOOT_B)
+    if(NOT SPECTER_APP STREQUAL "bootloader")
+        message(FATAL_ERROR "boot_b requires the bootloader app")
+    endif()
     set(specter_validation_partition boot_b)
     set(specter_expected_validation_offset ${SPECTER_BOOT_B_OFFSET})
 elseif(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_MAIN)
+    if(NOT SPECTER_APP STREQUAL "mock-main")
+        message(FATAL_ERROR "main requires the mock-main app")
+    endif()
     set(specter_validation_partition main)
     set(specter_expected_validation_offset ${SPECTER_MAIN_OFFSET})
 else()
@@ -77,6 +101,25 @@ add_custom_target(specter_app_size_check ALL
         -P "${CMAKE_CURRENT_LIST_DIR}/tools/check-app-size.cmake"
     DEPENDS gen_project_binary
     COMMENT "Checking that the ESP image cannot overlap its approval trailer")
+
+if(SPECTER_APP STREQUAL "mock-main")
+    add_custom_command(TARGET specter_app_size_check POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E env
+            "OBJCOPY=${CMAKE_OBJCOPY}"
+            "READELF=${CMAKE_READELF}"
+            ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/mock_app/tools/check_mock_image.py"
+            --elf "${specter_build_dir}/${PROJECT_NAME}.elf"
+            --bin "${specter_build_dir}/${specter_project_bin}"
+            --map "${specter_build_dir}/${PROJECT_NAME}.map"
+            --manifest "${specter_build_dir}/mock-manifest.json"
+            --board "${SPECTER_BOARD_PROFILE}"
+            --requested "${SPECTER_MOCK_BLOAT_BYTES}"
+            --partition-size "${SPECTER_MAIN_PARTITION_SIZE}"
+            --trailer-size "${SPECTER_ESP32P4_TRAILER_SIZE}"
+            --project-version "${PROJECT_VER}"
+            --idf-version "${IDF_VER}"
+        COMMENT "Validating retained mock section and writing build manifest")
+endif()
 
 function(specter_remove_default_app target_name)
     foreach(property_name FLASH_FILE FLASH_ENTRY IMAGES)

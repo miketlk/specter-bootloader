@@ -1,11 +1,6 @@
 #!/bin/sh
 set -eu
 
-# This project uses only components from the pinned ESP-IDF checkout and this
-# source tree. Disabling the component manager avoids its unnecessary psutil
-# process-tree lookup, which macOS sandboxes reject because it calls sysctl.
-export IDF_COMPONENT_MANAGER=0
-
 platform_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 repo_root=$(CDPATH= cd -- "$platform_dir/../.." && pwd -P)
 run_root=$(mktemp -d "${TMPDIR:-/tmp}/specter-esp32-p4-validation.XXXXXX")
@@ -22,11 +17,15 @@ rmdir "$ambient_idf"
 
 # Validate from clean generated state so CMake caches, compiler flags, and
 # sdkconfig values from another pinned ESP-IDF version cannot affect results.
-for target in boot-a boot-b main; do
+for target in boot-a boot-b; do
   cmake -E remove_directory \
     "$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-$target"
   "$platform_dir/tools/build.sh" plaintext-dev "$target" build size
 done
+cmake -E remove_directory \
+  "$repo_root/build/esp32-p4-wifi6-touch-lcd/mock-plaintext-dev-4p3-main-bloat-0"
+SPECTER_APP=mock-main SPECTER_MOCK_BLOAT_BYTES=0 \
+  "$platform_dir/tools/build.sh" plaintext-dev main build size
 
 # Compile the irreversible production profile, but never flash or boot it here.
 cmake -E remove_directory \
@@ -124,7 +123,7 @@ for expected in \
     'plaintext-dev-boot-a:CONFIG_PARTITION_TABLE_OFFSET=0x10000' \
     'plaintext-dev-boot-a:CONFIG_SPIRAM=y' \
     'plaintext-dev-boot-b:CONFIG_SPECTER_ROOT_VALIDATION_TARGET_BOOT_B=y' \
-    'plaintext-dev-main:CONFIG_SPECTER_ROOT_VALIDATION_TARGET_MAIN=y' \
+    'mock-plaintext-dev-4p3-main-bloat-0:CONFIG_SPECTER_ROOT_VALIDATION_TARGET_MAIN=y' \
     'encrypted-production-boot-a:CONFIG_SECURE_DISABLE_ROM_DL_MODE=y'; do
   build=${expected%%:*}
   setting=${expected#*:}
@@ -138,7 +137,7 @@ done
 for sdkconfig in \
     "$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-boot-a/partition-layout/sdkconfig" \
     "$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-boot-b/partition-layout/sdkconfig" \
-    "$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-main/partition-layout/sdkconfig" \
+    "$repo_root/build/esp32-p4-wifi6-touch-lcd/mock-plaintext-dev-4p3-main-bloat-0/partition-layout/sdkconfig" \
     "$repo_root/build/esp32-p4-wifi6-touch-lcd/encrypted-production-boot-a/partition-layout/sdkconfig"; do
   if ! rg -q '^CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y$' "$sdkconfig" ||
       rg -q '^CONFIG_ESPTOOLPY_FLASHSIZE_(32MB|64MB|128MB)=y$' "$sdkconfig" ||
@@ -149,11 +148,12 @@ for sdkconfig in \
   fi
 done
 
-for build in plaintext-dev-boot-a plaintext-dev-boot-b plaintext-dev-main; do
+for build in plaintext-dev-boot-a plaintext-dev-boot-b \
+    mock-plaintext-dev-4p3-main-bloat-0; do
   case "$build" in
     *-boot-a) partition=boot_a ;;
     *-boot-b) partition=boot_b ;;
-    *-main) partition=main ;;
+    *-main|*-main-*) partition=main ;;
   esac
   partition_csv="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/partition-layout/partitions.csv"
   offset=$(awk -F, -v partition="$partition" '
@@ -171,11 +171,16 @@ for build in plaintext-dev-boot-a plaintext-dev-boot-b plaintext-dev-main; do
   flasher_args="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/flasher_args.json"
   flash_args="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/flash_args"
   app_flash_args="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/app-flash_args"
+  if [ "$partition" = main ]; then
+    artifact=specter_esp32p4_mock_main
+  else
+    artifact=specter_esp32p4_bootloader
+  fi
   if ! rg -q "\"app\".*\"offset\"[[:space:]]*:[[:space:]]*\"$offset\"" \
       "$flasher_args" ||
-      ! rg -q "^$offset specter_esp32p4_bootloader[.]bin$" \
+      ! rg -q "^$offset $artifact[.]bin$" \
       "$flash_args" ||
-      ! rg -q "^$offset specter_esp32p4_bootloader[.]bin$" \
+      ! rg -q "^$offset $artifact[.]bin$" \
       "$app_flash_args"; then
     echo "error: $build does not flash its app at $offset" >&2
     exit 1
@@ -183,19 +188,20 @@ for build in plaintext-dev-boot-a plaintext-dev-boot-b plaintext-dev-main; do
 done
 
 irreversible_dev_config='^CONFIG_(SECURE_FLASH_ENC_ENABLED|SECURE_BOOT|SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT|BOOTLOADER_APP_ANTI_ROLLBACK|SECURE_DISABLE_ROM_DL_MODE|SECURE_ENABLE_SECURE_ROM_DL_MODE|BOOT_ROM_LOG_ALWAYS_OFF|BOOT_ROM_LOG_ON_GPIO_HIGH|BOOT_ROM_LOG_ON_GPIO_LOW|ESP_CRYPTO_FORCE_ECC_CONSTANT_TIME_POINT_MUL|ESP_ECDSA_ENABLE_P192_CURVE)=y$'
-for target in boot-a boot-b main; do
-  sdkconfig="$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-$target/partition-layout/sdkconfig"
-  cache="$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-$target/CMakeCache.txt"
+for build in plaintext-dev-boot-a plaintext-dev-boot-b \
+    mock-plaintext-dev-4p3-main-bloat-0; do
+  sdkconfig="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/partition-layout/sdkconfig"
+  cache="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/CMakeCache.txt"
   if ! rg -q '^SPECTER_ALLOW_IRREVERSIBLE_CONFIG:[^=]+=OFF$' "$cache"; then
-    echo "error: plaintext-dev-$target bypasses the irreversible-setting gate" >&2
+    echo "error: $build bypasses the irreversible-setting gate" >&2
     exit 1
   fi
   if rg "$irreversible_dev_config" "$sdkconfig"; then
-    echo "error: plaintext-dev-$target enables an irreversible MCU setting" >&2
+    echo "error: $build enables an irreversible MCU setting" >&2
     exit 1
   fi
   if ! rg -q '^CONFIG_BOOT_ROM_LOG_ALWAYS_ON=y$' "$sdkconfig"; then
-    echo "error: plaintext-dev-$target does not preserve the ROM log eFuse" >&2
+    echo "error: $build does not preserve the ROM log eFuse" >&2
     exit 1
   fi
 done

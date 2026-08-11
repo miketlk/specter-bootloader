@@ -1,0 +1,13 @@
+[sections:specter_mock_bloat]
+entries:
+    .specter_mock_bloat
+
+[scheme:specter_mock_bloat]
+entries:
+    specter_mock_bloat -> flash_rodata
+
+[mapping:specter_mock_bloat]
+archive: libmock_app.a
+entries:
+    mock_bloat (specter_mock_bloat);
+        specter_mock_bloat -> flash_rodata KEEP()

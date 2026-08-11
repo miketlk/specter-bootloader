@@ -103,8 +103,8 @@ static uint16_t alert_color(int type) {
   return COLOR_INFO_BG;
 }
 
-bool specter_esp32p4_gui_alert(int type, const char* caption,
-                               const char* text, const char* user_action) {
+bool specter_esp32p4_gui_alert(int type, const char* caption, const char* text,
+                               const char* user_action) {
   if (!caption || !text || !init_if_needed()) {
     ESP_LOGE(TAG, "unable to render alert");
     return false;
@@ -117,19 +117,23 @@ bool specter_esp32p4_gui_alert(int type, const char* caption,
   bool ok = specter_display_fill_rect(0, 0, size.width, caption_height,
                                       alert_color(type));
   ok = specter_display_fill_rect(0, caption_height, size.width,
-                                 size.height - caption_height, COLOR_BG) && ok;
-  ok = specter_display_draw_text(0, (caption_height - 20U) / 2U, size.width,
-                                 caption, COLOR_TEXT, alert_color(type), true,
-                                 false, NULL) && ok;
+                                 size.height - caption_height, COLOR_BG) &&
+       ok;
+  ok = specter_display_draw_text(BL_FONT_NORMAL, 0, (caption_height - 20U) / 2U,
+                                 size.width, caption, COLOR_TEXT,
+                                 alert_color(type), true, false, NULL) &&
+       ok;
   uint16_t final_y = text_y;
-  ok = specter_display_draw_text(margin, text_y, content_width, text,
-                                 COLOR_TEXT, COLOR_BG, false, true, &final_y) &&
+  ok = specter_display_draw_text(BL_FONT_NORMAL, margin, text_y, content_width,
+                                 text, COLOR_TEXT, COLOR_BG, false, true,
+                                 &final_y) &&
        ok;
   if (user_action) {
     uint16_t action_y = final_y + size.height / 16U;
-    ok = specter_display_draw_text(margin, action_y, content_width,
-                                   user_action, COLOR_TEXT_LOW, COLOR_BG, false,
-                                   true, NULL) && ok;
+    ok = specter_display_draw_text(BL_FONT_NORMAL, margin, action_y,
+                                   content_width, user_action, COLOR_TEXT_LOW,
+                                   COLOR_BG, false, true, NULL) &&
+         ok;
   }
   ok = specter_display_flush(0, size.height) && ok;
   if (ok) {
@@ -157,12 +161,14 @@ bool specter_esp32p4_gui_progress(const char* caption, const char* operation,
   bool ok = true;
   if (displayed_page != gui_page_progress) {
     ok = specter_display_fill(COLOR_BG) && ok;
-    ok = specter_display_draw_text(0, size.height / 16U, size.width, caption,
-                                   COLOR_TEXT, COLOR_BG, true, false, NULL) &&
+    ok = specter_display_draw_text(BL_FONT_NORMAL, 0, size.height / 16U,
+                                   size.width, caption, COLOR_TEXT, COLOR_BG,
+                                   true, false, NULL) &&
          ok;
   }
-  ok = specter_display_draw_text(bar_x, bar_y - 30U, bar_width, operation,
-                                 COLOR_TEXT, COLOR_BG, false, false, NULL) &&
+  ok = specter_display_draw_text(BL_FONT_NORMAL, bar_x, bar_y - 30U, bar_width,
+                                 operation, COLOR_TEXT, COLOR_BG, false, false,
+                                 NULL) &&
        ok;
   ok = specter_display_fill_rect(bar_x, bar_y, bar_width, bar_height,
                                  COLOR_CONTROL) &&
@@ -182,8 +188,8 @@ bool specter_esp32p4_gui_progress(const char* caption, const char* operation,
   if (ok) {
     displayed_page = gui_page_progress;
   }
-  ESP_LOGI(TAG, "%s: %s (%" PRIu32 ".%02" PRIu32 "%%)", caption,
-           operation, bounded / 100U, bounded % 100U);
+  ESP_LOGI(TAG, "%s: %s (%" PRIu32 ".%02" PRIu32 "%%)", caption, operation,
+           bounded / 100U, bounded % 100U);
   return ok;
 }
 

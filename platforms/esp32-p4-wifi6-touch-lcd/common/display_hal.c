@@ -21,7 +21,7 @@ bool specter_display_init(void) {
   }
   if (!specter_esp32p4_board_display_init() ||
       !specter_esp32p4_board_framebuffer(&framebuffer, &size.width,
-                                        &size.height)) {
+                                         &size.height)) {
     specter_esp32p4_board_display_deinit();
     framebuffer = NULL;
     memset(&size, 0, sizeof(size));
@@ -49,7 +49,8 @@ bool specter_display_flush(uint16_t y, uint16_t height) {
 
 bool specter_display_fill_rect(uint16_t x, uint16_t y, uint16_t width,
                                uint16_t height, uint16_t color) {
-  if (!initialized || !width || !height || x >= size.width || y >= size.height) {
+  if (!initialized || !width || !height || x >= size.width ||
+      y >= size.height) {
     return false;
   }
   if (width > size.width - x) {
@@ -73,15 +74,16 @@ bool specter_display_fill(uint16_t color) {
 }
 
 static void draw_character(uint16_t x, uint16_t y, char character,
-                           uint16_t color, uint16_t background) {
+                           uint16_t color, uint16_t background,
+                           const sFONT* font) {
   if (character < ' ' || character > '~') {
     character = '?';
   }
-  const uint16_t bytes_per_row = (Font20.Width + 7U) / 8U;
+  const uint16_t bytes_per_row = (font->Width + 7U) / 8U;
   const uint8_t* glyph =
-      Font20.table + (size_t)(character - ' ') * bytes_per_row * Font20.Height;
-  for (uint16_t row = 0; row < Font20.Height; ++row) {
-    for (uint16_t column = 0; column < Font20.Width; ++column) {
+      font->table + (size_t)(character - ' ') * bytes_per_row * font->Height;
+  for (uint16_t row = 0; row < font->Height; ++row) {
+    for (uint16_t column = 0; column < font->Width; ++column) {
       uint8_t bits = glyph[(size_t)row * bytes_per_row + column / 8U];
       uint8_t mask = (uint8_t)(0x80U >> (column % 8U));
       framebuffer[(size_t)(y + row) * size.width + x + column] =
@@ -106,30 +108,33 @@ static size_t line_length(const char* text, size_t maximum, bool multiline) {
   return length;
 }
 
-bool specter_display_draw_text(uint16_t x, uint16_t y, uint16_t width,
-                               const char* text, uint16_t color,
-                               uint16_t background, bool centered,
-                               bool multiline, uint16_t* final_y) {
+static bool draw_text(uint16_t x, uint16_t y, uint16_t width, const char* text,
+                      uint16_t color, uint16_t background, bool centered,
+                      bool multiline, uint16_t* final_y, const sFONT* font) {
   if (!initialized || !text || x >= size.width || y >= size.height ||
-      width > size.width - x || width < Font20.Width) {
+      width > size.width - x || width < font->Width) {
     return false;
   }
-  size_t maximum = width / Font20.Width;
+  size_t maximum = width / font->Width;
   uint16_t current_y = y;
   const char* cursor = text;
   do {
-    if (current_y > size.height - Font20.Height) {
+    if (current_y > size.height - font->Height) {
       return false;
     }
     size_t length = line_length(cursor, maximum, multiline);
+    if (!multiline && cursor[length] && cursor[length] != '\n' &&
+        cursor[length] != '\r') {
+      return false;
+    }
     uint16_t line_x = x;
     if (centered && length < maximum) {
-      line_x += (uint16_t)((width - length * Font20.Width) / 2U);
+      line_x += (uint16_t)((width - length * font->Width) / 2U);
     }
-    specter_display_fill_rect(x, current_y, width, Font20.Height, background);
+    specter_display_fill_rect(x, current_y, width, font->Height, background);
     for (size_t index = 0; index < length; ++index) {
-      draw_character((uint16_t)(line_x + index * Font20.Width), current_y,
-                     cursor[index], color, background);
+      draw_character((uint16_t)(line_x + index * font->Width), current_y,
+                     cursor[index], color, background, font);
     }
     if (final_y) {
       *final_y = current_y;
@@ -141,9 +146,32 @@ bool specter_display_draw_text(uint16_t x, uint16_t y, uint16_t width,
     if ('\n' == *cursor) {
       ++cursor;
     }
-    current_y += Font20.Height;
+    current_y += font->Height;
   } while (multiline && *cursor);
   return specter_display_flush(y, (uint16_t)(current_y - y));
+}
+
+static const sFONT* lookup_font(bl_font_t font) {
+  switch (font) {
+    case BL_FONT_NORMAL:
+      return &Font20;
+    case BL_FONT_SMALL:
+      return &Font12;
+    default:
+      return NULL;
+  }
+}
+
+bool specter_display_draw_text(bl_font_t font, uint16_t x, uint16_t y,
+                               uint16_t width, const char* text, uint16_t color,
+                               uint16_t background, bool centered,
+                               bool multiline, uint16_t* final_y) {
+  const sFONT* selected_font = lookup_font(font);
+  if (!selected_font) {
+    return false;
+  }
+  return draw_text(x, y, width, text, color, background, centered, multiline,
+                   final_y, selected_font);
 }
 
 bool specter_display_set_backlight(uint8_t percent) {

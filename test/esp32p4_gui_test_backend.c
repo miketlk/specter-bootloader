@@ -15,8 +15,7 @@ static unsigned failed_occurrence;
 
 static bool operation_result(esp32p4_test_operation_t operation) {
   ++calls[operation];
-  return operation != failed_operation ||
-         calls[operation] != failed_occurrence;
+  return operation != failed_operation || calls[operation] != failed_occurrence;
 }
 
 void esp32p4_test_backend_reset(void) {
@@ -69,10 +68,11 @@ bool specter_display_fill_rect(uint16_t x, uint16_t y, uint16_t width,
   return operation_result(esp32p4_test_display_fill_rect);
 }
 
-bool specter_display_draw_text(uint16_t x, uint16_t y, uint16_t width,
-                               const char* text, uint16_t color,
+bool specter_display_draw_text(bl_font_t font, uint16_t x, uint16_t y,
+                               uint16_t width, const char* text, uint16_t color,
                                uint16_t background, bool centered,
                                bool multiline, uint16_t* final_y) {
+  (void)font;
   (void)x;
   (void)width;
   (void)text;

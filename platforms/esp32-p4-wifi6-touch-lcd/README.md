@@ -140,3 +140,44 @@ All six runs reached the selected partition and emitted
 `SPECTER_PHASE2_OK`. This validates flash sizing, PSRAM initialization, and
 Root Loader handoff; display, touch, and SDMMC still require their dedicated
 board-support validation.
+
+## Mock Main Firmware
+
+The mock is an ESP32-P4 port-testing fixture, not product firmware and not a
+wallet. It builds only with the `plaintext-dev` profile for the fixed `main`
+role and uses test keys. Select a board and an exact flash-resident filler size
+with the stable root interface:
+
+```sh
+make esp32-p4-wifi6-touch-lcd-mock BOARD=lcd-4p3 MOCK_BLOAT_SIZE=0
+make esp32-p4-wifi6-touch-lcd-mock BOARD=lcd-5 MOCK_BLOAT_SIZE=1048576
+```
+
+Each build writes a machine-readable `mock-manifest.json` beside the mock ELF,
+map, and canonical hash-appended binary. The post-link checker rejects an
+incorrect or non-loadable filler section and any image that overlaps the
+reserved approval trailer. Determine and rebuild the maximum fitting filler
+with:
+
+```sh
+platforms/esp32-p4-wifi6-touch-lcd/tools/find-max-mock-bloat.sh 4p3
+```
+
+Install the pinned host decoder dependencies and capture framed CBOR from the
+Type-C connector labelled `USB TO UART` (115200 baud, 8-N-1):
+
+```sh
+python -m pip install --require-hashes \
+  -r platforms/esp32-p4-wifi6-touch-lcd/mock_app/tools/requirements.txt
+python platforms/esp32-p4-wifi6-touch-lcd/mock_app/tools/mock_telemetry.py \
+  --port /dev/cu.usbmodemXXXX --board lcd-4p3 --bloat 0 --pretty
+```
+
+Direct development flashing is useful for display and UART bring-up, but an
+absent or invalid approval record in that workflow is expected and does not
+prove the final approved Root Loader handoff or microSD upgrade path.
+
+The `encrypted-production` profile is compile-only by default because first
+boot can burn irreversible security eFuses. Passing any IDF flash command with
+that profile requires the separate, explicit
+`SPECTER_ALLOW_IRREVERSIBLE_HARDWARE=1` environment opt-in.

@@ -1,6 +1,7 @@
 # List of all supported platforms
 PLATFORMS = stm32f469disco testbench \
-	esp32-p4-wifi6-touch-lcd-4p3 esp32-p4-wifi6-touch-lcd-5
+	esp32-p4-wifi6-touch-lcd-4p3 esp32-p4-wifi6-touch-lcd-5 \
+	esp32-p4-wifi6-touch-lcd-mock
 
 # Select target platform by first argument
 FIRST_ARG = $(firstword $(MAKECMDGOALS))
@@ -50,3 +51,11 @@ esp32-p4-wifi6-touch-lcd-5:
 	@test -f keys/$(KEYS)/pubkeys.c || (echo ERROR: keys/$(KEYS)/pubkeys.c does not exist; exit 1;)
 	@SPECTER_BOARD=5 SPECTER_KEYS=$(KEYS) \
 		platforms/esp32-p4-wifi6-touch-lcd/tools/build.sh plaintext-dev boot-a $(RUN_ARGS) build
+
+esp32-p4-wifi6-touch-lcd-mock:
+	@test "$(BOARD)" = lcd-4p3 -o "$(BOARD)" = lcd-5 || \
+		(echo ERROR: BOARD must be lcd-4p3 or lcd-5; exit 2)
+	@SPECTER_BOARD=$$(test "$(BOARD)" = lcd-4p3 && echo 4p3 || echo 5) \
+		SPECTER_KEYS=test SPECTER_APP=mock-main \
+		SPECTER_MOCK_BLOAT_BYTES=$(if $(MOCK_BLOAT_SIZE),$(MOCK_BLOAT_SIZE),0) \
+		platforms/esp32-p4-wifi6-touch-lcd/tools/build.sh plaintext-dev main $(RUN_ARGS) build

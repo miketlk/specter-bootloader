@@ -3,6 +3,14 @@
 set(SPECTER_ROOT_LOADER_PARTITION_SIZE 0x20000)
 set(SPECTER_BOOTLOADER_PARTITION_SIZE 0x100000)
 set(SPECTER_MAIN_PARTITION_SIZE 0x400000)
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/common/esp32p4_platform.h"
+     specter_trailer_definition
+     REGEX "^#define SPECTER_ESP32P4_TRAILER_SIZE 0x[0-9A-Fa-f]+U$")
+string(REGEX MATCH "0x[0-9A-Fa-f]+" SPECTER_ESP32P4_TRAILER_SIZE
+       "${specter_trailer_definition}")
+if(NOT SPECTER_ESP32P4_TRAILER_SIZE)
+    message(FATAL_ERROR "cannot derive approval trailer size from platform header")
+endif()
 # A zero-sized optional partition is a disabled layout provision. The layout
 # generator drops it from the ESP-IDF partition CSV rather than emitting a
 # zero-sized entry, which ESP-IDF could interpret incorrectly.

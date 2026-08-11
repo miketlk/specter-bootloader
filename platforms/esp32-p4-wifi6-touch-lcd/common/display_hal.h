@@ -14,14 +14,19 @@ typedef struct specter_display_size {
   uint16_t height;
 } specter_display_size_t;
 
+typedef enum bl_font {
+  BL_FONT_NORMAL,
+  BL_FONT_SMALL,
+} bl_font_t;
+
 bool specter_display_init(void);
 void specter_display_deinit(void);
 specter_display_size_t specter_display_size(void);
 bool specter_display_fill(uint16_t color);
 bool specter_display_fill_rect(uint16_t x, uint16_t y, uint16_t width,
                                uint16_t height, uint16_t color);
-bool specter_display_draw_text(uint16_t x, uint16_t y, uint16_t width,
-                               const char* text, uint16_t color,
+bool specter_display_draw_text(bl_font_t font, uint16_t x, uint16_t y,
+                               uint16_t width, const char* text, uint16_t color,
                                uint16_t background, bool centered,
                                bool multiline, uint16_t* final_y);
 bool specter_display_flush(uint16_t y, uint16_t height);

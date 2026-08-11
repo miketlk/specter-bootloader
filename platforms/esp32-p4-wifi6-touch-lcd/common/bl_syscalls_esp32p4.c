@@ -11,8 +11,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "ui_prompts.h"
 
 static const char* TAG = "specter-platform";
+#if CONFIG_SPECTER_UI_HARDWARE_DIAGNOSTIC
+static bool ui_diagnostic_ran = false;
+#endif
 
 const char* specter_esp32p4_platform_id(void) {
 #if CONFIG_SPECTER_BOARD_LCD_4P3
@@ -43,6 +47,17 @@ bool blsys_init(void) {
   }
   ESP_LOGI(TAG, "initialized %s without network companion components",
            blsys_platform_id());
+#if CONFIG_SPECTER_UI_HARDWARE_DIAGNOSTIC
+  if (!ui_diagnostic_ran) {
+    ui_diagnostic_ran = true;
+    if (!specter_esp32p4_gui_hardware_diagnostic()) {
+      ESP_LOGE(TAG, "UI hardware diagnostic failed during initialization");
+      specter_esp32p4_gui_deinit();
+      nvs_flash_deinit();
+      return false;
+    }
+  }
+#endif
   return true;
 }
 
@@ -54,7 +69,8 @@ void blsys_deinit(void) {
 
 void blsys_fatal_error(const char* text) {
   specter_esp32p4_gui_alert(bl_alert_error, "Bootloader Error",
-                            text ? text : "Internal error");
+                            text ? text : "Internal error",
+                            specter_esp32p4_reset_prompt(true, BL_FOREVER));
   ESP_LOGE(TAG, "fatal error: %s", text ? text : "Internal error");
   blsys_media_umount();
   for (;;) {
@@ -68,7 +84,11 @@ bl_alert_status_t blsys_alert(blsys_alert_type_t type, const char* caption,
   if ((int)type < 0 || type >= bl_nalerts || !caption || !text || flags) {
     blsys_fatal_error("Invalid alert arguments");
   }
-  specter_esp32p4_gui_alert(type, caption, text);
+  if (!specter_esp32p4_gui_alert(
+          type, caption, text,
+          specter_esp32p4_reset_prompt(false, time_ms))) {
+    blsys_fatal_error("Unable to display alert");
+  }
   if (BL_FOREVER == time_ms) {
     blsys_media_umount();
     for (;;) {
@@ -83,6 +103,9 @@ bl_alert_status_t blsys_alert(blsys_alert_type_t type, const char* caption,
 
 void blsys_progress(const char* caption, const char* operation,
                     uint32_t percent_x100) {
-  specter_esp32p4_gui_progress(caption, operation,
-                               percent_x100 > 10000U ? 10000U : percent_x100);
+  if (!specter_esp32p4_gui_progress(
+          caption, operation,
+          percent_x100 > 10000U ? 10000U : percent_x100)) {
+    blsys_fatal_error("Unable to update progress display");
+  }
 }

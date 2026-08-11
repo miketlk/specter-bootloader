@@ -21,11 +21,17 @@ set(core_sources
     "${repo_root}/core/bootloader.c")
 set(platform_sources
     "${platform_dir}/common/bl_syscalls_esp32p4.c"
+    "${platform_dir}/common/display_hal.c"
     "${platform_dir}/common/esp32p4_flash_map.c"
     "${platform_dir}/common/esp32p4_gui.c"
     "${platform_dir}/common/esp32p4_media.c"
     "${platform_dir}/common/esp32p4_reset.c"
     "${platform_dir}/common/esp32p4_trailer.c")
+list(APPEND platform_sources
+    "${platform_dir}/common/touch_decode.c"
+    "${platform_dir}/common/touch_hal.c"
+    "${platform_dir}/common/ui_prompts.c"
+    "${repo_root}/platforms/stm32f469disco/Utilities/Fonts/font20.c")
 
 if(CONFIG_SPECTER_BOARD_LCD_4P3)
     list(APPEND platform_sources
@@ -66,6 +72,7 @@ idf_component_register(
         "${repo_root}/lib/secp256k1"
         "${repo_root}/lib/secp256k1/include"
         "${repo_root}/lib/secp256k1/src"
+        "${repo_root}/platforms/stm32f469disco/Utilities/Fonts"
     REQUIRES
         app_update
         bootloader_support

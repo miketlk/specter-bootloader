@@ -14,6 +14,7 @@ CMN_ROOT := $(PWD)
 BUILD_DIR_ROOT = $(CMN_ROOT)/build/$(TARGET)
 CORE_DIR = $(CMN_ROOT)/core
 LIB_DIR = $(CMN_ROOT)/lib
+ESP32P4_COMMON_DIR = $(CMN_ROOT)/platforms/esp32-p4-wifi6-touch-lcd/common
 ifeq ($(DEBUG), 1)
 BUILD_DIR = $(BUILD_DIR_ROOT)/debug
 else
@@ -33,6 +34,10 @@ C_SOURCES += $(shell find $(CORE_DIR) -name *.c ! -name startup_mailbox.c)
 C_SOURCES += $(shell find $(LIB_DIR)/crc32 -name *.c)
 # Crypto library
 C_SOURCES += $(shell find $(LIB_DIR)/crypto -name *.c)
+# Host-testable ESP32-P4 UI logic and pure helpers
+C_SOURCES += $(ESP32P4_COMMON_DIR)/esp32p4_gui.c \
+	$(ESP32P4_COMMON_DIR)/touch_decode.c \
+	$(ESP32P4_COMMON_DIR)/ui_prompts.c
 # libsecp256k1
 C_SOURCES += $(addprefix $(LIB_DIR)/secp256k1/src/,\
 	secp256k1.c \
@@ -54,7 +59,9 @@ C_INCLUDES =  \
 -I$(LIB_DIR)/secp256k1 \
 -I$(LIB_DIR)/secp256k1/include \
 -I$(LIB_DIR)/secp256k1/src \
--I$(LIB_DIR)/bech32
+-I$(LIB_DIR)/bech32 \
+-I$(ESP32P4_COMMON_DIR) \
+-I$(LOC_ROOT)/esp32p4_stubs
 
 # C defines
 C_DEFS =  \
@@ -77,7 +84,7 @@ CFLAGS = $(C_INCLUDES) -MMD -MP -Werror -Wno-unused-function \
 $(addprefix -D,$(C_DEFS))
 
 CPPFLAGS = -std=c++14
-LDFLAGS ?= -lstdc++ -lm -ldl
+LDFLAGS += -lstdc++ -lm -ldl
 
 ifeq ($(DEBUG), 1)
 CFLAGS += -g -DDEBUG=1

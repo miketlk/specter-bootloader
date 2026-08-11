@@ -58,23 +58,38 @@ void specter_esp32p4_candidate_committed(specter_esp32p4_role_t role);
 /// Returns the configured board platform identifier.
 const char* specter_esp32p4_platform_id(void);
 
-/// Initializes the selected board's display, backlight, and touch probe.
-bool specter_esp32p4_board_init(void);
+/// Initializes the selected board's panel and makes its framebuffer available.
+bool specter_esp32p4_board_display_init(void);
 
-/// Releases resources acquired by specter_esp32p4_board_init().
-void specter_esp32p4_board_deinit(void);
+/// Releases resources acquired by specter_esp32p4_board_display_init().
+void specter_esp32p4_board_display_deinit(void);
 
-/// Initializes board-independent GUI forwarding; Phase 6 supplies hardware UI.
+/// Returns the selected panel's RGB565 framebuffer and geometry.
+bool specter_esp32p4_board_framebuffer(uint16_t** framebuffer,
+                                      uint16_t* width, uint16_t* height);
+
+/// Controls the board-local backlight and panel output.
+bool specter_esp32p4_board_backlight(uint8_t percent);
+bool specter_esp32p4_board_display_enabled(bool enabled);
+
+/// Flushes a changed horizontal framebuffer band to the DPI engine.
+bool specter_esp32p4_board_flush(uint16_t y, uint16_t height);
+
+/// Initializes board-independent GUI state without eagerly starting the LCD.
 bool specter_esp32p4_gui_init(void);
 
 /// Releases board-independent GUI forwarding resources.
 void specter_esp32p4_gui_deinit(void);
 
 /// Emits an alert through the current GUI/log forwarding layer.
-void specter_esp32p4_gui_alert(int type, const char* caption, const char* text);
+bool specter_esp32p4_gui_alert(int type, const char* caption, const char* text,
+                               const char* user_action);
 
 /// Emits upgrade progress through the current GUI/log forwarding layer.
-void specter_esp32p4_gui_progress(const char* caption, const char* operation,
+bool specter_esp32p4_gui_progress(const char* caption, const char* operation,
                                   uint32_t percent_x100);
+
+/// Runs the opt-in real-board Phase 6 diagnostic.
+bool specter_esp32p4_gui_hardware_diagnostic(void);
 
 #endif  // ESP32P4_PLATFORM_H_INCLUDED

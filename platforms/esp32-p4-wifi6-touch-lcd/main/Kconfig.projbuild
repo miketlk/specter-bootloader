@@ -8,3 +8,10 @@ choice SPECTER_BOARD
     config SPECTER_BOARD_LCD_5
         bool "ESP32-P4-WIFI6-Touch-LCD-5"
 endchoice
+
+config SPECTER_UI_HARDWARE_DIAGNOSTIC
+    bool "Run the display, backlight, and touch diagnostic at startup"
+    default n
+    help
+        Exercise the Phase 6 UI on development hardware before normal
+        bootloader processing. Never enable this in a release configuration.

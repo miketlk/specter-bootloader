@@ -13,7 +13,6 @@
 #include <stdint.h>
 
 #include "board_config.h"
-#include "driver/i2c_master.h"
 #include "driver/ledc.h"
 #include "esp32p4_platform.h"
 #include "esp_lcd_hx8394.h"
@@ -33,7 +32,7 @@ static esp_ldo_channel_handle_t dsi_ldo;
 static esp_lcd_dsi_bus_handle_t dsi_bus;
 static esp_lcd_panel_io_handle_t panel_io;
 static esp_lcd_panel_handle_t dpi_panel;
-static i2c_master_bus_handle_t touch_i2c_bus;
+static uint16_t* lcd_framebuffer;
 static bool backlight_timer_initialized;
 static bool backlight_channel_initialized;
 
@@ -158,12 +157,12 @@ static esp_err_t init_display(void) {
   if (ESP_OK != (result = reset_lcd()) ||
       ESP_OK != (result = specter_hx8394_init(panel_io)) ||
       ESP_OK != (result = esp_lcd_panel_init(dpi_panel)) ||
-      ESP_OK != (result = esp_lcd_dpi_panel_set_pattern(
-                     dpi_panel, MIPI_DSI_PATTERN_BAR_VERTICAL))) {
+      ESP_OK != (result = esp_lcd_dpi_panel_get_frame_buffer(
+                     dpi_panel, 1, (void**)&lcd_framebuffer, (void**)NULL))) {
     return result;
   }
   ESP_LOGI(TAG,
-           "HX8394 %ux%u color bar active: DSI=%u lanes at %u Mbps, "
+           "HX8394 %ux%u framebuffer active: DSI=%u lanes at %u Mbps, "
            "LDO=%d/%d mV reset_active_high=%u",
            SPECTER_LCD_WIDTH, SPECTER_LCD_HEIGHT, SPECTER_LCD_DSI_LANES,
            SPECTER_LCD_DSI_LANE_BITRATE_MBPS, SPECTER_LCD_DSI_LDO_CHANNEL,
@@ -171,35 +170,7 @@ static esp_err_t init_display(void) {
   return ESP_OK;
 }
 
-static esp_err_t probe_touch(void) {
-  i2c_master_bus_config_t bus_config = {
-      .i2c_port = SPECTER_TOUCH_I2C_PORT,
-      .sda_io_num = SPECTER_TOUCH_I2C_SDA_GPIO,
-      .scl_io_num = SPECTER_TOUCH_I2C_SCL_GPIO,
-      .clk_source = I2C_CLK_SRC_DEFAULT,
-      .glitch_ignore_cnt = 7,
-      .flags.enable_internal_pullup = true,
-  };
-  esp_err_t result = i2c_new_master_bus(&bus_config, &touch_i2c_bus);
-  if (ESP_OK != result) {
-    return result;
-  }
-  const uint8_t addresses[] = {SPECTER_TOUCH_GT911_ADDRESS,
-                               SPECTER_TOUCH_GT911_BACKUP_ADDRESS};
-  for (size_t index = 0; index < ARRAY_SIZE(addresses); ++index) {
-    result = i2c_master_probe(touch_i2c_bus, addresses[index], 100);
-    if (ESP_OK == result) {
-      ESP_LOGI(TAG, "GT911 responded at I2C address 0x%02x", addresses[index]);
-      return ESP_OK;
-    }
-    if (ESP_ERR_NOT_FOUND != result) {
-      return result;
-    }
-  }
-  return ESP_ERR_NOT_FOUND;
-}
-
-void specter_esp32p4_board_deinit(void) {
+void specter_esp32p4_board_display_deinit(void) {
   if (backlight_channel_initialized) {
     esp_err_t result = set_backlight(0);
     esp_err_t step_result =
@@ -240,13 +211,10 @@ void specter_esp32p4_board_deinit(void) {
     ledc_timer_config(&timer_config);
     backlight_timer_initialized = false;
   }
-  if (touch_i2c_bus) {
-    i2c_del_master_bus(touch_i2c_bus);
-    touch_i2c_bus = NULL;
-  }
   if (dpi_panel) {
     esp_lcd_panel_del(dpi_panel);
     dpi_panel = NULL;
+    lcd_framebuffer = NULL;
   }
   if (panel_io) {
     esp_lcd_panel_io_del(panel_io);
@@ -263,7 +231,7 @@ void specter_esp32p4_board_deinit(void) {
   gpio_reset_pin(SPECTER_LCD_RESET_GPIO);
 }
 
-bool specter_esp32p4_board_init(void) {
+bool specter_esp32p4_board_display_init(void) {
   ESP_LOGI(TAG, "initializing %s; camera hardware is intentionally unused",
            SPECTER_BOARD_NAME);
   esp_err_t result = init_backlight();
@@ -273,20 +241,39 @@ bool specter_esp32p4_board_init(void) {
   if (ESP_OK == result) {
     result = init_display();
   }
-  if (ESP_OK == result) {
-    result = set_backlight(100);
-  }
   if (ESP_OK != result) {
     ESP_LOGE(TAG, "display initialization failed: %s", esp_err_to_name(result));
-    specter_esp32p4_board_deinit();
+    specter_esp32p4_board_display_deinit();
     return false;
   }
-
-  result = probe_touch();
-  if (ESP_OK != result) {
-    ESP_LOGW(TAG, "GT911 probe failed at 0x%02x and 0x%02x: %s",
-             SPECTER_TOUCH_GT911_ADDRESS, SPECTER_TOUCH_GT911_BACKUP_ADDRESS,
-             esp_err_to_name(result));
-  }
   return true;
+}
+
+bool specter_esp32p4_board_framebuffer(uint16_t** framebuffer,
+                                      uint16_t* width, uint16_t* height) {
+  if (!lcd_framebuffer || !framebuffer || !width || !height) {
+    return false;
+  }
+  *framebuffer = lcd_framebuffer;
+  *width = SPECTER_LCD_WIDTH;
+  *height = SPECTER_LCD_HEIGHT;
+  return true;
+}
+
+bool specter_esp32p4_board_backlight(uint8_t percent) {
+  return ESP_OK == set_backlight(percent);
+}
+
+bool specter_esp32p4_board_display_enabled(bool enabled) {
+  return panel_io &&
+         ESP_OK == esp_lcd_panel_io_tx_param(panel_io, enabled ? 0x29 : 0x28,
+                                             NULL, 0);
+}
+
+bool specter_esp32p4_board_flush(uint16_t y, uint16_t height) {
+  return dpi_panel && lcd_framebuffer && y < SPECTER_LCD_HEIGHT &&
+         height <= SPECTER_LCD_HEIGHT - y &&
+         ESP_OK == esp_lcd_panel_draw_bitmap(
+                       dpi_panel, 0, y, SPECTER_LCD_WIDTH, y + height,
+                       lcd_framebuffer);
 }

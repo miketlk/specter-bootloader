@@ -6,10 +6,14 @@
 #ifndef ESP32P4_BOOT_CONTRACT_H_INCLUDED
 #define ESP32P4_BOOT_CONTRACT_H_INCLUDED
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define SPECTER_ESP32P4_TRAILER_SIZE 0x1000U
-#define SPECTER_JOURNAL_OFFSET 0x80U
+#define SPECTER_JOURNAL_PARTITION_LABEL "boot_journal"
+#define SPECTER_JOURNAL_PARTITION_SUBTYPE 0x41U
+#define SPECTER_JOURNAL_SECTOR_SIZE 0x1000U
 #define SPECTER_APPROVAL_MAGIC "SPAPRV2"
 #define SPECTER_APPROVAL_REVISION 2U
 #define SPECTER_APPROVAL_STATUS_APPROVED 0x41505052U
@@ -67,6 +71,25 @@ typedef struct __attribute__((packed, aligned(4))) specter_boot_journal_record {
   uint32_t commit_crc;
   uint8_t commit_padding[SPECTER_JOURNAL_COMMIT_PADDING_SIZE];
 } specter_boot_journal_record_t;
+
+/// Each fixed sector binds journal records to one Bootloader role.
+static inline uint32_t specter_journal_sector_offset(
+    specter_esp32p4_role_t role) {
+  return ((uint32_t)role - (uint32_t)specter_role_boot_a) *
+         SPECTER_JOURNAL_SECTOR_SIZE;
+}
+
+/// Torn records occupy their entire slot and must never be overwritten.
+static inline bool specter_journal_slot_erased(
+    const specter_boot_journal_record_t* record) {
+  const uint8_t* bytes = (const uint8_t*)record;
+  for (size_t i = 0; i < sizeof(*record); ++i) {
+    if (bytes[i] != 0xffU) {
+      return false;
+    }
+  }
+  return true;
+}
 
 typedef struct __attribute__((packed, aligned(4))) specter_rtc_request {
   uint32_t magic;

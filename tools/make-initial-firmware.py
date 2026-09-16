@@ -5,6 +5,7 @@
 
 from intelhex import IntelHex
 import click
+from pathlib import Path
 import struct
 import zlib
 from core.integritychk import *
@@ -57,7 +58,9 @@ def cli():
 @click.option('--sequence', type=click.IntRange(min=1, max=0xffffffff),
               default=1, show_default=True)
 @click.option('--confirmed', is_flag=True,
-              help='Include a confirmed journal record for a boot role.')
+              help='Write a confirmed record to --journal-output for a boot role.')
+@click.option('--journal-output', type=click.Path(dir_okay=False),
+              help='Separate plaintext 4 KiB journal sector for --esp32-role.')
 @click.option(
     '-bin', '--bin-output', 'bin_out',
     required=False,
@@ -72,7 +75,8 @@ def cli():
     metavar='<output_file_name>'
 )
 def combine(out_file, startup_hex, bootloader_hex, firmware_hex, esp32_app,
-            esp32_platform, esp32_role, sequence, confirmed, bin_out):
+            esp32_platform, esp32_role, sequence, confirmed, journal_output,
+            bin_out):
     """This command makes a firmare file for initial programming of a "clean"
     defice. The firmware file is made by combining together the Start-up code,
     the Bootloader, and, optionally, the Main Firmware.
@@ -85,12 +89,25 @@ def combine(out_file, startup_hex, bootloader_hex, firmware_hex, esp32_app,
         if not esp32_platform or not esp32_role:
             raise click.ClickException(
                 "ESP32 trailer mode requires --esp32-platform and --esp32-role")
+        if confirmed and not journal_output:
+            raise click.ClickException("--confirmed requires --journal-output")
+        outputs = [out_file] + ([journal_output] if journal_output else [])
+        if any(paths_alias(output, esp32_app.name) for output in outputs):
+            raise click.ClickException("Outputs must differ from the application input")
+        if journal_output and paths_alias(journal_output, out_file):
+            raise click.ClickException("Journal and trailer outputs must differ")
+        journal = (make_esp32p4_journal(esp32_role, sequence, confirmed)
+                   if journal_output else None)
         trailer = make_esp32p4_trailer(
-            esp32_app.read(), esp32_platform, esp32_role, sequence, confirmed)
+            esp32_app.read(), esp32_platform, esp32_role, sequence)
         with open(out_file, "wb") as file_obj:
             file_obj.write(trailer)
+        if journal is not None:
+            Path(journal_output).write_bytes(journal)
         return
 
+    if journal_output or confirmed:
+        raise click.ClickException("Journal options require --esp32-app")
     if not startup_hex or not bootloader_hex:
         raise click.ClickException(
             "STM32 mode requires --startup and --bootloader")
@@ -120,6 +137,17 @@ def combine(out_file, startup_hex, bootloader_hex, firmware_hex, esp32_app,
         file_obj.close()
     else:
         out_ih.write_hex_file(out_file)
+
+
+def paths_alias(first, second):
+    """Recognize identical paths, symlinks, and existing hard links."""
+    first, second = Path(first), Path(second)
+    try:
+        return first.resolve() == second.resolve() or first.samefile(second)
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise click.ClickException(f"Cannot validate output paths: {error}") from error
 
 
 def intelhex_to_bytes(ih_obj):
@@ -165,7 +193,7 @@ def intelhex_add_icr(ih_obj, storage_size):
     intelhex_add_data(ih_obj, addr, icr)
 
 
-def make_esp32p4_trailer(image, platform, role, sequence, confirmed=False):
+def make_esp32p4_trailer(image, platform, role, sequence):
     """Builds a fixed-role approval trailer for initial USB provisioning."""
     try:
         digest = validate_esp32p4_app_image(image)
@@ -178,8 +206,6 @@ def make_esp32p4_trailer(image, platform, role, sequence, confirmed=False):
     platform_bytes = platform.encode('ascii')
     if len(platform_bytes) >= 40:
         raise click.ClickException("ESP32 platform identifier is too long")
-    if confirmed and role == 'main':
-        raise click.ClickException("Main Firmware has no confirmation journal")
     version = find_payload_version(image)
     if not version:
         raise click.ClickException("ESP32 application has no version tag")
@@ -193,6 +219,16 @@ def make_esp32p4_trailer(image, platform, role, sequence, confirmed=False):
     trailer = bytearray([0xff]) * 0x1000
     trailer[:len(approval)] = approval
 
+    return bytes(trailer)
+
+
+def make_esp32p4_journal(role, sequence, confirmed=False):
+    """Build one plaintext sector: boot_a at partition +0, boot_b at +0x1000."""
+    if role not in ('boot_a', 'boot_b'):
+        raise click.ClickException("Only Bootloader roles have journals")
+    if not 1 <= sequence <= 0xffffffff:
+        raise click.ClickException("Invalid approval sequence")
+    sector = bytearray([0xff]) * 0x1000
     if confirmed:
         journal_prefix = struct.pack(
             '<IIII16s', 0x4A525053, 2, sequence, 0x434F4E46,
@@ -200,8 +236,8 @@ def make_esp32p4_trailer(image, platform, role, sequence, confirmed=False):
         journal = (journal_prefix +
                    struct.pack('<I', zlib.crc32(journal_prefix)) +
                    bytes([0xff]) * 28)
-        trailer[0x80:0x80 + len(journal)] = journal
-    return bytes(trailer)
+        sector[:len(journal)] = journal
+    return bytes(sector)
 
 
 if __name__ == '__main__':

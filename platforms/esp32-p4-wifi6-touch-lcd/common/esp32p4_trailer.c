@@ -26,13 +26,12 @@ static bool firmware_version_floor_set(bl_addr_t address,
                                        uint32_t image_version);
 static uint32_t firmware_version_floor_get(bl_addr_t address);
 
-_Static_assert(sizeof(specter_approval_record_t) <= SPECTER_JOURNAL_OFFSET,
-               "approval record overlaps boot journal");
-_Static_assert(SPECTER_JOURNAL_OFFSET + sizeof(specter_boot_journal_record_t) <=
+_Static_assert(sizeof(specter_approval_record_t) <=
                    SPECTER_ESP32P4_TRAILER_SIZE,
-               "boot journal does not fit trailer");
-_Static_assert(0U == SPECTER_JOURNAL_OFFSET % SPECTER_FLASH_WRITE_GRANULE,
-               "boot journal offset is not encryption-block aligned");
+               "approval record does not fit trailer");
+_Static_assert(SPECTER_JOURNAL_PARTITION_SIZE ==
+                   2U * SPECTER_JOURNAL_SECTOR_SIZE,
+               "each Bootloader journal needs an independent erase sector");
 _Static_assert(0U == offsetof(specter_approval_record_t, commit_crc) %
                          SPECTER_FLASH_WRITE_GRANULE,
                "approval commit is not encryption-block aligned");
@@ -42,14 +41,25 @@ _Static_assert(SPECTER_FLASH_WRITE_GRANULE ==
                "approval commit must occupy one encryption block");
 _Static_assert(0U == offsetof(specter_boot_journal_record_t, commit_crc) %
                          SPECTER_JOURNAL_WRITE_GRANULE,
-               "journal commit is not encryption-block aligned");
+               "journal commit alignment changed");
 _Static_assert(SPECTER_JOURNAL_WRITE_GRANULE ==
                    sizeof(specter_boot_journal_record_t) -
                        offsetof(specter_boot_journal_record_t, commit_crc),
-               "journal commit must occupy one encryption block");
+               "journal commit size changed");
 _Static_assert(0U == sizeof(specter_boot_journal_record_t) %
                          SPECTER_JOURNAL_WRITE_GRANULE,
-               "journal stride is not encryption-block aligned");
+               "journal record alignment changed");
+
+const esp_partition_t* specter_esp32p4_journal_partition(void) {
+  const esp_partition_t* partition = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA, SPECTER_JOURNAL_PARTITION_SUBTYPE,
+      SPECTER_JOURNAL_PARTITION_LABEL);
+  return partition && !partition->encrypted &&
+                 partition->address == SPECTER_JOURNAL_PARTITION_OFFSET &&
+                 partition->size == SPECTER_JOURNAL_PARTITION_SIZE
+             ? partition
+             : NULL;
+}
 
 static uint32_t record_crc(const void* record, size_t crc_offset) {
   return crc32_fast(record, crc_offset, 0U);
@@ -185,9 +195,18 @@ bool specter_esp32p4_approval_invalidate(specter_esp32p4_role_t role) {
   if (!reserve_sequence(role, previous_sequence)) {
     return false;
   }
-  return ESP_OK == esp_partition_erase_range(partition,
-                                             trailer_offset(partition),
-                                             SPECTER_ESP32P4_TRAILER_SIZE);
+  // Invalidate approval before erasing trial history, including on power loss.
+  if (ESP_OK != esp_partition_erase_range(partition, trailer_offset(partition),
+                                          SPECTER_ESP32P4_TRAILER_SIZE)) {
+    return false;
+  }
+  if (role == specter_role_main) {
+    return true;
+  }
+  const esp_partition_t* journal = specter_esp32p4_journal_partition();
+  return journal && ESP_OK == esp_partition_erase_range(
+                                  journal, specter_journal_sector_offset(role),
+                                  SPECTER_JOURNAL_SECTOR_SIZE);
 }
 
 static bool approval_create(specter_esp32p4_role_t role, uint32_t image_length,
@@ -269,57 +288,9 @@ bool specter_esp32p4_approval_create_authorized(
          approval_create(role, image_length, semantic_version, expected_sha256);
 }
 
-bool specter_esp32p4_journal_append(specter_esp32p4_role_t role,
-                                    uint32_t sequence,
-                                    specter_boot_journal_state_t state) {
-  const esp_partition_t* partition = specter_esp32p4_partition(role);
-  if (!partition ||
-      (role != specter_role_boot_a && role != specter_role_boot_b) ||
-      (state != specter_journal_attempted &&
-       state != specter_journal_confirmed)) {
-    return false;
-  }
-
-  specter_boot_journal_record_t existing;
-  size_t record_offset = trailer_offset(partition) + SPECTER_JOURNAL_OFFSET;
-  const size_t trailer_end = partition->size;
-  for (; record_offset + sizeof(existing) <= trailer_end;
-       record_offset += sizeof(existing)) {
-    if (ESP_OK != esp_partition_read(partition, record_offset, &existing,
-                                     sizeof(existing))) {
-      return false;
-    }
-    uint32_t erased = UINT32_MAX;
-    if (0 == memcmp(&existing.magic, &erased, sizeof(erased))) {
-      break;
-    }
-  }
-  if (record_offset + sizeof(existing) > trailer_end) {
-    return false;
-  }
-
-  specter_boot_journal_record_t record = {
-      .magic = SPECTER_JOURNAL_MAGIC,
-      .revision = SPECTER_JOURNAL_REVISION,
-      .sequence = sequence,
-      .state = state,
-      .commit_crc = UINT32_MAX,
-  };
-  const size_t prefix_size =
-      offsetof(specter_boot_journal_record_t, commit_crc);
-  if (!write_encrypted_granules(partition, record_offset, &record,
-                                prefix_size)) {
-    return false;
-  }
-  record.commit_crc = record_crc(&record, prefix_size);
-  return write_encrypted_granules(partition, record_offset + prefix_size,
-                                  (const uint8_t*)&record + prefix_size,
-                                  sizeof(record) - prefix_size);
-}
-
 specter_boot_journal_state_t specter_esp32p4_journal_state(
     specter_esp32p4_role_t role, uint32_t sequence) {
-  const esp_partition_t* partition = specter_esp32p4_partition(role);
+  const esp_partition_t* partition = specter_esp32p4_journal_partition();
   specter_boot_journal_state_t state = specter_journal_none;
   if (!partition || !sequence ||
       (role != specter_role_boot_a && role != specter_role_boot_b)) {
@@ -327,11 +298,12 @@ specter_boot_journal_state_t specter_esp32p4_journal_state(
   }
 
   specter_boot_journal_record_t record;
-  size_t offset = trailer_offset(partition) + SPECTER_JOURNAL_OFFSET;
-  while (offset + sizeof(record) <= partition->size) {
-    if (ESP_OK !=
-            esp_partition_read(partition, offset, &record, sizeof(record)) ||
-        record.magic == UINT32_MAX) {
+  size_t offset = specter_journal_sector_offset(role);
+  const size_t journal_end = offset + SPECTER_JOURNAL_SECTOR_SIZE;
+  while (offset + sizeof(record) <= journal_end) {
+    if (ESP_OK != esp_partition_read_raw(partition, offset, &record,
+                                         sizeof(record)) ||
+        specter_journal_slot_erased(&record)) {
       break;
     }
     if (record.magic == SPECTER_JOURNAL_MAGIC &&

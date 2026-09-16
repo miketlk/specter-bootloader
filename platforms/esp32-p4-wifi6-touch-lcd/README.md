@@ -85,12 +85,19 @@ compiles the same values into the Root Loader allow-list.
 | `boot_a` | `app,factory` | `0x020000` | 1 MiB | 1 MiB - 4 KiB |
 | `boot_b` | `app,ota_0` | `0x120000` | 1 MiB | 1 MiB - 4 KiB |
 | `main` | `app,ota_1` | `0x220000` | 4 MiB | 4 MiB - 4 KiB |
+| `boot_journal` | `data,0x41` | `0x620000` | 8 KiB, plaintext | two 4 KiB sectors |
 | `main_aux` | `data,0x40` | `0x620000` | 0 (disabled) | not emitted |
 
 The final 4 KiB sector of each application partition is reserved outside the
-ESP-IDF image for its approval record and, for bootloader slots, the trial
-journal. `main_aux` is a provision for a future extension. While its canonical
-size is zero, the layout generator drops it from the ESP-IDF partition CSV, so
+ESP-IDF image for its approval record. Trial journals live in the unencrypted
+`boot_journal` partition: its first sector belongs to `boot_a`, its second to
+`boot_b`. An update invalidates the inactive slot’s approval before erasing only
+that slot’s journal sector. Records remain bound to the approval sequence.
+The plaintext journal uses CRC for corruption detection, not authentication.
+Provision the matching Root Loader, partition table, applications and separate
+journal sectors together; existing trailer journals are not migrated.
+
+`main_aux` is a provision for a future extension. While its canonical size is zero, the layout generator drops it from the ESP-IDF partition CSV, so
 it reserves no flash and is not present on devices. Enabling it later requires
 assigning a nonzero size and reviewing the resulting layout. It is not a second
 Main Firmware slot or a TEE partition.

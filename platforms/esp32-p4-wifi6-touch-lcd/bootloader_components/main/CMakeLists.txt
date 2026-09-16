@@ -2,6 +2,7 @@ set(repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 set(platform_common "${CMAKE_CURRENT_LIST_DIR}/../../common")
 
 idf_component_register(SRCS "bootloader_start.c"
+                            "esp32p4_root_journal.c"
                             "${repo_root}/lib/crc32/crc32.c"
                        INCLUDE_DIRS "${platform_common}"
                                     "${repo_root}/lib/crc32"
@@ -22,6 +23,8 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     SPECTER_BOOT_A_OFFSET=${SPECTER_BOOT_A_OFFSET}
     SPECTER_BOOT_B_OFFSET=${SPECTER_BOOT_B_OFFSET}
     SPECTER_MAIN_OFFSET=${SPECTER_MAIN_OFFSET}
+    SPECTER_JOURNAL_PARTITION_OFFSET=${SPECTER_JOURNAL_PARTITION_OFFSET}
+    SPECTER_JOURNAL_PARTITION_SIZE=${SPECTER_JOURNAL_PARTITION_SIZE}
     SPECTER_MAIN_PARTITION_SIZE=${SPECTER_MAIN_PARTITION_SIZE}
     CRC32_USE_LOOKUP_TABLE_SLICING_BY_8
     __BYTE_ORDER=1234

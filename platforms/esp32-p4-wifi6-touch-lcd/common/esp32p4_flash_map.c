@@ -80,7 +80,7 @@ bool specter_esp32p4_flash_map_init(void) {
       return false;
     }
   }
-  return true;
+  return specter_esp32p4_journal_partition() != NULL;
 }
 
 const esp_partition_t* specter_esp32p4_partition(specter_esp32p4_role_t role) {

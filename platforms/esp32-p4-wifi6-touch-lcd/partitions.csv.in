@@ -6,4 +6,5 @@ nvs_keys,   data, nvs_keys, 0x01f000,                 0x001000,                 
 boot_a,     app,  factory, @SPECTER_BOOT_A_OFFSET@,  @SPECTER_BOOTLOADER_PARTITION_SIZE@,
 boot_b,     app,  ota_0,   @SPECTER_BOOT_B_OFFSET@,  @SPECTER_BOOTLOADER_PARTITION_SIZE@,
 main,       app,  ota_1,   @SPECTER_MAIN_OFFSET@,    @SPECTER_MAIN_PARTITION_SIZE@,
+boot_journal, data, 0x41, @SPECTER_JOURNAL_PARTITION_OFFSET@, @SPECTER_JOURNAL_PARTITION_SIZE@,
 @SPECTER_MAIN_AUX_PARTITION@

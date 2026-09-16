@@ -192,13 +192,23 @@ To program a "clean" device a complete firmware image needs to be created, inclu
 
 For ESP32-P4 provisioning, the same tool can create the 4 KiB approval trailer
 for a canonical application image. A provisioned boot role normally uses
-`--confirmed`; Main Firmware has no boot-confirmation journal:
+`--confirmed` and a separate `--journal-output`; Main Firmware has no journal:
 
 ```sh
 make-initial-firmware.py --esp32-app bootloader.bin \
   --esp32-platform esp32-p4-wifi6-touch-lcd-4p3 \
-  --esp32-role boot_a --sequence 1 --confirmed boot_a.trailer
+  --esp32-role boot_a --sequence 1 --confirmed \
+  --journal-output boot_a.journal boot_a.trailer
 ```
+
+The approval trailer still occupies the final 4 KiB of its application partition.
+The journal output is a separate plaintext 4 KiB sector in `boot_journal`:
+`boot_a` at `0x620000`, `boot_b` at `0x621000`. Generate and provision each
+Bootloader slot's journal separately; do not encrypt these journal files.
+Omitting `--confirmed` with `--journal-output` produces an erased trial journal.
+The new layout requires the matching Root Loader, partition table, Bootloader
+applications and journal sectors to be provisioned together; old trailer-local
+journals are not migrated by a field upgrade.
 
 The recommended way to create an initial firmware is by the help of `make-initial-firmware.py` tool. Usage instructions can be obtained by running it with `-help` option:
 

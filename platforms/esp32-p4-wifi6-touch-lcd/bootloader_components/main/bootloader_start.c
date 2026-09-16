@@ -23,7 +23,7 @@
 #include "bootloader_utility.h"
 #include "crc32.h"
 #include "esp32p4_boot_contract.h"
-#include "esp_flash_encrypt.h"
+#include "esp32p4_root_journal.h"
 #include "esp_flash_partitions.h"
 #include "esp_image_format.h"
 #include "esp_log.h"
@@ -88,6 +88,7 @@ static bool load_and_check_layout(esp_partition_pos_t positions[3]) {
   bool found[SPECTER_ARRAY_SIZE(boot_allowlist)] = {false};
   int num_partitions = 0;
   bool valid = true;
+  bool journal_found = false;
 
   if (!table ||
       esp_partition_table_verify(table, true, &num_partitions) != ESP_OK) {
@@ -101,6 +102,16 @@ static bool load_and_check_layout(esp_partition_pos_t positions[3]) {
   for (int i = 0; i < num_partitions; ++i) {
     const esp_partition_info_t* entry = &table[i];
     bool known_app = false;
+    if (label_equal(entry->label, SPECTER_JOURNAL_PARTITION_LABEL)) {
+      if (journal_found || entry->type != PART_TYPE_DATA ||
+          entry->subtype != SPECTER_JOURNAL_PARTITION_SUBTYPE ||
+          entry->pos.offset != SPECTER_JOURNAL_PARTITION_OFFSET ||
+          entry->pos.size != SPECTER_JOURNAL_PARTITION_SIZE ||
+          (entry->flags & PART_FLAG_ENCRYPTED)) {
+        valid = false;
+      }
+      journal_found = true;
+    }
     if (entry->type == PART_TYPE_DATA &&
         entry->subtype == PART_SUBTYPE_DATA_OTA) {
       ESP_LOGE(TAG, "otadata is forbidden by the fixed-role boot policy");
@@ -132,7 +143,7 @@ static bool load_and_check_layout(esp_partition_pos_t positions[3]) {
     }
   }
   bootloader_munmap(table);
-  return valid;
+  return valid && journal_found;
 }
 
 static bool read_approval(const specter_root_partition_t* partition,
@@ -170,71 +181,6 @@ static bool read_approval(const specter_root_partition_t* partition,
   }
   (void)position;
   return true;
-}
-
-static specter_boot_journal_state_t read_journal(
-    const specter_root_partition_t* partition, uint32_t sequence) {
-  specter_boot_journal_state_t state = specter_journal_none;
-  uint32_t offset = partition->offset + partition->size -
-                    SPECTER_ESP32P4_TRAILER_SIZE + SPECTER_JOURNAL_OFFSET;
-  const uint32_t end = partition->offset + partition->size;
-  specter_boot_journal_record_t record;
-  while (offset + sizeof(record) <= end) {
-    if (bootloader_flash_read(offset, &record, sizeof(record), true) !=
-            ESP_OK ||
-        record.magic == UINT32_MAX) {
-      break;
-    }
-    if (record.magic == SPECTER_JOURNAL_MAGIC &&
-        record.revision == SPECTER_JOURNAL_REVISION &&
-        record.sequence == sequence &&
-        (record.state == specter_journal_attempted ||
-         record.state == specter_journal_confirmed) &&
-        record.commit_crc ==
-            crc32_fast(&record,
-                       offsetof(specter_boot_journal_record_t, commit_crc),
-                       0U)) {
-      state = (specter_boot_journal_state_t)record.state;
-    }
-    offset += sizeof(record);
-  }
-  return state;
-}
-
-static bool append_journal(const specter_root_partition_t* partition,
-                           uint32_t sequence,
-                           specter_boot_journal_state_t state) {
-  uint32_t offset = partition->offset + partition->size -
-                    SPECTER_ESP32P4_TRAILER_SIZE + SPECTER_JOURNAL_OFFSET;
-  const uint32_t end = partition->offset + partition->size;
-  specter_boot_journal_record_t existing;
-  while (offset + sizeof(existing) <= end) {
-    if (bootloader_flash_read(offset, &existing, sizeof(existing), true) !=
-        ESP_OK) {
-      return false;
-    }
-    if (existing.magic == UINT32_MAX) {
-      break;
-    }
-    offset += sizeof(existing);
-  }
-  if (offset + sizeof(existing) > end) {
-    return false;
-  }
-
-  specter_boot_journal_record_t record = {
-      .magic = SPECTER_JOURNAL_MAGIC,
-      .revision = SPECTER_JOURNAL_REVISION,
-      .sequence = sequence,
-      .state = state,
-      .commit_crc = UINT32_MAX,
-  };
-  const size_t prefix = offsetof(specter_boot_journal_record_t, commit_crc);
-  record.commit_crc = crc32_fast(&record, prefix, 0U);
-  bool encrypted = esp_flash_encryption_enabled();
-  return bootloader_flash_write(offset, &record, prefix, encrypted) == ESP_OK &&
-         bootloader_flash_write(offset + prefix, (uint8_t*)&record + prefix,
-                                sizeof(record) - prefix, encrypted) == ESP_OK;
 }
 
 static bool consume_request(specter_rtc_request_t* request) {
@@ -318,8 +264,8 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
     state[i].approved =
         read_approval(&boot_allowlist[i], &positions[i], &state[i].approval);
     if (state[i].approved && i < 2U) {
-      state[i].journal =
-          read_journal(&boot_allowlist[i], state[i].approval.sequence);
+      state[i].journal = specter_root_journal_state(boot_allowlist[i].role,
+                                                    state[i].approval.sequence);
     }
   }
 
@@ -332,8 +278,9 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
         state[index].approval.sequence == request.sequence &&
         (state[index].journal == specter_journal_confirmed ||
          (state[index].journal == specter_journal_attempted &&
-          append_journal(&boot_allowlist[index], request.sequence,
-                         specter_journal_confirmed)))) {
+          specter_root_journal_append(boot_allowlist[index].role,
+                                      request.sequence,
+                                      specter_journal_confirmed)))) {
       state[index].journal = specter_journal_confirmed;
       ESP_LOGI(TAG, "confirmed %s sequence %" PRIu32,
                boot_allowlist[index].label, request.sequence);
@@ -354,9 +301,9 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
     bootloader_reset();
   }
   if (state[selected].journal == specter_journal_none) {
-    if (!append_journal(&boot_allowlist[selected],
-                        state[selected].approval.sequence,
-                        specter_journal_attempted)) {
+    if (!specter_root_journal_append(boot_allowlist[selected].role,
+                                     state[selected].approval.sequence,
+                                     specter_journal_attempted)) {
       ESP_LOGE(TAG, "cannot mark bootloader trial attempted");
       bootloader_reset();
     }

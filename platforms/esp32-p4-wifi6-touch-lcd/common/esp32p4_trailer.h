@@ -12,6 +12,9 @@
 
 #include "esp32p4_platform.h"
 
+/// Returns the exact, unencrypted shared journal partition, or NULL.
+const esp_partition_t* specter_esp32p4_journal_partition(void);
+
 /// Invalidates a role's approval before the first candidate image mutation.
 bool specter_esp32p4_approval_invalidate(specter_esp32p4_role_t role);
 
@@ -24,11 +27,6 @@ bool specter_esp32p4_approval_create_authorized(
 bool specter_esp32p4_approval_read(specter_esp32p4_role_t role,
                                    specter_approval_record_t* record,
                                    bool verify_image);
-
-/// Appends a power-loss-safe attempted or confirmed boot journal marker.
-bool specter_esp32p4_journal_append(specter_esp32p4_role_t role,
-                                    uint32_t sequence,
-                                    specter_boot_journal_state_t state);
 
 /// Returns the latest valid state for an approval sequence.
 specter_boot_journal_state_t specter_esp32p4_journal_state(

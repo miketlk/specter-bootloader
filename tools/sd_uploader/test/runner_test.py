@@ -18,6 +18,8 @@ def lifecycle(monkeypatch):
     artifact=dict(build='build',image_sha256='image')
     state=dict(chip='chip',full_nor='baseline')
     monkeypatch.setattr(runner,'prepare',lambda *_:(fixture,case,artifact,state))
+    monkeypatch.setattr(runner,'check_interpreter',lambda *_:None)
+    monkeypatch.setattr(runner,'snapshot',lambda f,c,a:(dict(f),dict(c),dict(a)))
     monkeypatch.setattr(runner,'identify',lambda **_:dict(port='fake',serial='fixture'))
     monkeypatch.setattr(runner,'FixtureLock',lambda *_:nullcontext())
     class Loader:
@@ -27,7 +29,7 @@ def lifecycle(monkeypatch):
             return dict(state) if name=='nor-before.json' else dict(after)
         def load(self,*_): events.append('load');return artifact
     class Client:
-        def __init__(self,*_,**__): pass
+        def __init__(self,*_,**__): self.session=bytes.fromhex('01'*16)
         def hello(self,*_): events.append('hello');return {}
         def listing(self): events.append('list');return []
         def request(self,opcode,*_): events.append(opcode);return {'state':'RELEASED'}
@@ -68,23 +70,33 @@ def test_dry_run_never_opens_serial(lifecycle,tmp_path):
     assert events==[]
 
 
-def test_recovery_recreates_and_releases_without_boot(lifecycle,tmp_path):
-    events,_,_=lifecycle
-    declared=dict(authorized=True,chip='chip',card_cid='card',bridge_serial='fixture',
-                  bridge_location='test',board='lcd-4p3')
-    (tmp_path/'declared.json').write_text(json.dumps(declared))
-    (tmp_path/'ram-manifest.json').write_text(json.dumps({'image_sha256':'image'}))
+def recovery_files(tmp_path, monkeypatch):
+    from sd_uploader import ram_image
+    fixture, case, artifact, _ = runner.prepare(None, None)
+    fixture = dict(fixture, authorized=True)
+    (tmp_path/'declared.json').write_text(json.dumps(fixture))
+    (tmp_path/'fixture.json').write_text(json.dumps(fixture))
+    (tmp_path/'case.json').write_text(json.dumps(case))
+    (tmp_path/'state.json').write_text(json.dumps(dict(ready=True, phase='staging',
+        device_state='unknown', sessions=[], media_started=True)))
+    (tmp_path/'ram-manifest.json').write_text(json.dumps(artifact))
     (tmp_path/'nor-before.json').write_text(json.dumps({'chip':'chip','full_nor':'baseline'}))
     (tmp_path/'card-before.json').write_text('[]')
+    fixture['idf_python'] = str((tmp_path/'python').absolute())
+    (tmp_path/'fixture.json').write_text(json.dumps(fixture))
+    monkeypatch.setattr(ram_image, 'verify_manifest', lambda _:dict(artifact))
+
+
+def test_recovery_recreates_and_releases_without_boot(lifecycle,tmp_path,monkeypatch):
+    events,_,_=lifecycle
+    recovery_files(tmp_path, monkeypatch)
     assert runner.recover(tmp_path/'declared.json',tmp_path)['recovered']
     assert events==['nor-recovery.json','load','hello','list','list','RELEASE','nor-after-recovery.json']
 
 
-def test_recovery_refuses_changed_ram_image(lifecycle,tmp_path):
+def test_recovery_refuses_changed_ram_image(lifecycle,tmp_path,monkeypatch):
     events,_,_=lifecycle
-    declared=dict(authorized=True,chip='chip',card_cid='card',bridge_serial='fixture',
-                  bridge_location='test',board='lcd-4p3')
-    (tmp_path/'declared.json').write_text(json.dumps(declared))
+    recovery_files(tmp_path, monkeypatch)
     (tmp_path/'ram-manifest.json').write_text(json.dumps({'image_sha256':'different'}))
     with pytest.raises(ValueError,match='same checked RAM image'):
         runner.recover(tmp_path/'declared.json',tmp_path)
@@ -132,3 +144,11 @@ def test_rejected_lock_never_writes_evidence(lifecycle, tmp_path, monkeypatch, e
     if existing:
         assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
     assert events == []
+
+
+def test_observed_mock_success_is_distinct_from_boot_request(lifecycle, tmp_path):
+    events, case, _ = lifecycle
+    case['outcome'] = 'approved-mock'
+    result = runner.run_case('fixture', 'case', tmp_path/'observed')
+    assert result['outcome'] == result['device_state'] == 'approved-mock'
+    assert events[-1] == 'normal-boot'

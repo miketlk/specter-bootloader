@@ -244,6 +244,117 @@ with hashes, and [build the device application](../platforms/esp32-p4-wifi6-touc
 The uploader needs Python 3.11 or later; its requirements are separate from the
 legacy signing requirements. ROM operations currently require esptool 4.12.0.
 
+For routine development, configure an authorized [version-2 fixture](sd_uploader/fixtures/fixture-development.example.json)
+once, then use one command per build:
+
+```sh
+export SD_UPLOADER_FIXTURE=/path/to/dut.json
+python tools/sd-uploader.py doctor
+python tools/sd-uploader.py stage build/specter_upgrade.bin
+python tools/sd-uploader.py stage build/specter_upgrade.bin --replace --format text
+# Requires normal-boot in the fixture's allowed_resets:
+python tools/sd-uploader.py stage build/specter_upgrade.bin --replace --after boot
+```
+
+An explicit `--fixture` overrides the environment variable. Declaration paths
+are relative to the declaring JSON file; environment paths are relative to the
+invocation directory. No global or last-used device is selected. `devices`
+enumerates CH343 serial numbers, locations and current ports without opening
+serial. `doctor` audits dependencies, interpreter, RAM image and enumeration;
+it does **not** verify the physical chip or card. Neither command resets hardware.
+Enrollment still requires the explicitly requested ROM probe and RAM-service
+HELLO workflow described below. Never set `authorized` for an unverified fixture.
+
+`stage` defaults to the source basename, which must match the firmware's
+case-sensitive `specter_upgrade*.bin` candidate rule. `--name` overrides it.
+Transport accepts deliberately malformed images; it does not validate signing.
+Exactly one candidate is required. Unexpected candidates fail before mutation.
+An identical destination succeeds only after full SD length/digest verification.
+A different destination requires `--replace`, which permits only that exact FAT
+name (case insensitive). Replacement removes then uploads; it is **not atomic**
+and interruption can leave the old file absent. Recovery restores the requested
+new bytes, not the previous file. Unrelated entries are preserved. A same-size
+mismatch requires a RAM reload because wire-v1 VERIFY enters UNCERTAIN on failure.
+Use `run-case` for multi-file candidate sets and explicit qualification assertions.
+
+Version 1 fixtures remain supported with pinned NOR baselines. Version 2 adds
+`preservation: "pinned"|"current"` and `allowed_resets`. Pinned policy requires
+`starting_state`; current policy requires `starting_state: null`, captures full
+NOR on every run, and checks equality before normal boot. It proves staging
+preservation, not starting-firmware correctness. `run-case` always requires pinned
+policy. ROM-only operations need `rom-entry` and `rom-verify`; add `normal-boot`
+only when authorized. There is no fallback from a failed pinned comparison.
+
+The default end state is ROM download mode. `--after boot` releases the SD card,
+compares complete NOR, then requests one normal reset and releases serial. Its
+result is `boot-requested`, **not** installation or health confirmation. A harness
+needing the first boot bytes must arm capture before reset; use the existing
+in-process approved-mock `run-case` observation for that assertion. `release`
+alone never boots the board. Failures never normal-boot as cleanup.
+
+`--dry-run` validates local inputs without device access or output/artifact writes.
+New runs are reserved under the bridge lock, by default in
+`build/sd-uploader/runs/<timestamp>-<random>/`, or at an explicit new `--run DIR`.
+The result returns the run path. Inputs, ELF/image/sdkconfig, audit source inputs,
+and pinned baselines are copied independently into `build/sd-uploader/artifacts/`
+before hardware access. Evidence points to those snapshots, so rebuilding the
+original paths does not change recovery inputs. Keep both directories while a
+run is incomplete. To clean completed runs, explicitly remove their run directory
+and the artifact directory referenced by `fixture.json`; do not prune interrupted
+runs. `make clean` may remove build outputs, so recover before cleaning.
+
+```sh
+python tools/sd-uploader.py result --run RUN_DIRECTORY
+python tools/sd-uploader.py recover --fixture /path/to/dut.json --run RUN_DIRECTORY
+```
+
+For incomplete runs, `result` derives phase, device state, and recovery instructions
+from durable `state.json`; an earlier failure is retained as `previous_failure`.
+
+Recovery revalidates identity and full NOR, verifies uncertain published files,
+and cleans only recorded session temporary names. Completed recovery is an
+offline result read. If normal reset may have occurred, recovery refuses to replay
+staging or reset and requests external observation. Missing evidence after possible
+media access also fails closed, including corrupt NOR baselines. Before media
+access, a missing or interrupted baseline can be captured again. Probe output is
+parsed before atomic publication. Regional NOR hashes remain diagnostics based
+on the current host partition layout; preservation compares device identity,
+security information, and the full-capacity NOR digest independently of that layout.
+Older runs without the new durable `state.json` require manual reconciliation; old mutable-input recovery is no longer replayed.
+Existing fixture/case schemas and low-level command arguments remain accepted.
+
+All commands now return one compact JSON terminal result on stdout with
+`schema_version: 1`; this replaces the previous unversioned pretty JSON and
+stderr-only failures. `--format text` selects concise human output. Failures have
+`code`, `phase`, `message`, `device_state`, and a run path when reserved. A recovery
+action is included only when supported by durable state. Raw HELLO, receipts,
+serial data and tracebacks belong in evidence; `--verbose` also prints diagnostics
+to stderr. `list --candidates --pages 16 --cursor 0` bounds returned wire pages
+(eight entries per page), reports `truncated`, and supplies `next_cursor`.
+Candidate filtering never hides continuation. Help and offline `result` work
+without optional hardware packages.
+
+| Exit | Stable codes (examples) | Meaning / action |
+| --- | --- | --- |
+| 0 | — | Success or validated dry run |
+| 2 | `USAGE`, `CONFIG`, `DEPENDENCY_MISSING`, `INTERPRETER_MISMATCH`, `INVALID_NAME`, `RESET_NOT_AUTHORIZED`, `ARTIFACT_MISMATCH`, `DOCTOR_FAILED` | Fix inputs or use the declared interpreter |
+| 3 | `DEVICE_SELECTION`, `LOCKED`, `IDENTITY_MISMATCH` | Resolve endpoint, ownership or fixture identity |
+| 4 | `DEST_EXISTS`, `CANDIDATE_CONFLICT`, `TEMP_CONFLICT`, `NOR_MISMATCH`, `DIGEST_MISMATCH`, `VERIFY_MISMATCH`, `EVIDENCE_INCOMPLETE`, `HANDOFF_REQUIRED` | Inspect evidence; do not infer permission to retry or replace |
+| 5 | `TIMEOUT`, `TRANSPORT`, `ROM_TRANSPORT` | Inspect durable state before recovery |
+| 130 | `INTERRUPTED` | SIGINT/SIGTERM handled best effort |
+| 1 | `INTERNAL` | Unexpected failure; inspect diagnostics |
+
+`--timeout` is the whole operation deadline (default 900 seconds), separate from
+case observation timeout. This leaves conservative room for two full 32 MiB NOR
+scans (about two minutes each), RAM loads, and ordinary multi-megabyte transfers;
+large/slow transfers can request more time. The deadline covers host work, ROM
+subprocesses, serial waits, retries and observation. POSIX CLI cancellation allows
+up to five additional seconds for descriptor/process cleanup and best-effort
+journaling; no cleanup media mutations or normal resets are attempted. SIGKILL
+and power loss rely on the journal. `--progress auto` prints only on a stderr TTY;
+`off` is silent and `json` emits stderr phase events plus at most one heartbeat
+per 30 seconds. No per-chunk output appears on stdout.
+
 For an **already running** UART uploader:
 
 The default application/CLI rate is 4000000 baud. Explicit rates are 115200,
@@ -322,7 +433,7 @@ Host journals, raw serial bytes, identity, file receipts, NOR hashes and outcome
 are saved in the run directory. After interruption, `recover --fixture ...
 --run ...` requires the same checked image and unchanged NOR, reloads RAM,
 identifies the card, removes only exact reserved uploader temporary filenames,
-and recreates every declared file. It refuses to overwrite an unrelated original
+and verifies or recreates every declared file. It refuses to overwrite an unrelated original
 destination. It checks the complete candidate set, releases SD, and compares NOR
 again before following the case's declared boot outcome. An old receipt or
 filename alone never proves an interrupted fixture is valid.
@@ -345,14 +456,15 @@ readback. Residual host/wait time includes serial receive, scheduling and eviden
 I/O; serial-write return time alone is not physical UART transmission time.
 Both host and device read available bytes without waiting to fill a large buffer.
 
-Run the host suite with `python -m pytest -q tools`. Uploader test modules
+Run the host suite with `python -m pytest -q tools`. Uploader tests live in
+`sd_uploader/test/`, retaining the `*_test.py` discovery convention. These modules
 explicitly skip when their optional Python dependencies are absent. For a
 dedicated uploader test job, install those dependencies and require their imports
 before running tests so missing packages cannot silently skip coverage:
 
 ```sh
 python -m pip install --require-hashes -r tools/requirements-sd-uploader.txt
-python -c "import cbor2, elftools, serial" && python -m pytest -q tools/sd_uploader
+python -c "import cbor2, elftools, serial" && python -m pytest -q tools/sd_uploader/test
 ```
 
 The test environment also needs pytest. The storage fault harness

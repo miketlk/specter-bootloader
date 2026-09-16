@@ -44,3 +44,32 @@ def test_valid_stage_only(tmp_path,monkeypatch):
     (tmp_path/'case.json').write_text(json.dumps(c))
     prepared=fixture.prepare(tmp_path/'fixture.json',tmp_path/'case.json')
     assert prepared[0]['authorized'] and prepared[1]['outcome']=='stage-only'
+
+
+def test_version_two_current_and_relative_paths(tmp_path, monkeypatch):
+    f, _ = declarations(tmp_path, monkeypatch)
+    f.update(schema_version=2, preservation='current', starting_state=None,
+             allowed_resets=['rom-entry', 'rom-verify'])
+    (tmp_path/'fixture.json').write_text(json.dumps(f))
+    result, _, start = fixture.load_fixture(tmp_path/'fixture.json')
+    assert start is None and result['ram_manifest'] == str(tmp_path/'ram.json')
+
+
+def test_current_not_accepted_for_qualification_case(tmp_path, monkeypatch):
+    f, c = declarations(tmp_path, monkeypatch)
+    f.update(schema_version=2, preservation='current', starting_state=None,
+             allowed_resets=['rom-entry', 'rom-verify'])
+    (tmp_path/'fixture.json').write_text(json.dumps(f))
+    (tmp_path/'case.json').write_text(json.dumps(c))
+    with pytest.raises(ValueError, match='pinned'):
+        fixture.prepare(tmp_path/'fixture.json', tmp_path/'case.json')
+
+
+@pytest.mark.parametrize('field,value', [('chip',None), ('card_cid',13), ('schema_version',True),
+    ('idf_python',None), ('starting_state',None)])
+def test_bad_field_types_are_configuration_errors(tmp_path, monkeypatch, field, value):
+    f, _ = declarations(tmp_path, monkeypatch)
+    f[field] = value
+    (tmp_path/'fixture.json').write_text(json.dumps(f))
+    with pytest.raises(ValueError):
+        fixture.load_fixture(tmp_path/'fixture.json')

@@ -109,7 +109,7 @@ def test_restart_invalidates_session():
     client=Client(device,'lcd-4p3')
     client.hello()
     device.restart=True
-    with pytest.raises(RuntimeError,match='restarted'):
+    with pytest.raises(ValueError,match='restarted'):
         client.request('STATUS')
 
 

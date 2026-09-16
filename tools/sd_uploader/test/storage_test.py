@@ -4,7 +4,7 @@ import shlex
 from pathlib import Path
 import pytest
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[3]
 APP=ROOT/'platforms/esp32-p4-wifi6-touch-lcd/sd_uploader'
 
 

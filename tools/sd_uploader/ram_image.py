@@ -24,13 +24,13 @@ def config(path):
                 if line.startswith('CONFIG_') and '=' in line)
 
 
-def regions(settings):
+def regions(settings, memory=None):
     """Extract boundaries from pinned sources; never use chip-agnostic ranges."""
     if settings.get('CONFIG_ESP32P4_SELECTS_REV_LESS_V3') != 'y':
         raise ValueError('only revision 1.x profile implemented')
     if settings.get('CONFIG_ESP32P4_REV_MIN_FULL') != '100':
         raise ValueError('revision minimum must be 1.0')
-    source = (IDF / 'components/esp_system/ld/esp32p4/memory.ld.in').read_text()
+    source = Path(memory or IDF / 'components/esp_system/ld/esp32p4/memory.ld.in').read_text()
     def constant(name):
         match = re.search(r'^#define\s+' + name + r'\s+(0x[0-9a-fA-F]+)\b', source, re.M)
         if not match:
@@ -58,7 +58,7 @@ def check_ranges(spans, allowed):
         previous = end
 
 
-def audit(elf_path, image_path, sdkconfig, board):
+def audit(elf_path, image_path, sdkconfig, board, audit_root=None):
     if board not in ('lcd-4p3', 'lcd-5'):
         raise ValueError('unsupported board')
     settings = config(sdkconfig)
@@ -75,7 +75,9 @@ def audit(elf_path, image_path, sdkconfig, board):
     expected_board = 'CONFIG_SDU_BOARD_4P3' if board == 'lcd-4p3' else 'CONFIG_SDU_BOARD_5'
     if settings.get(expected_board) != 'y':
         raise ValueError('board config mismatch')
-    allowed = regions(settings)
+    source_root = Path(audit_root) if audit_root else ROOT
+    app = source_root / APP.relative_to(ROOT)
+    allowed = regions(settings, source_root / 'third_party/esp-idf/components/esp_system/ld/esp32p4/memory.ld.in')
     with Path(elf_path).open('rb') as stream:
         elf = ELFFile(stream)
         if elf.elfclass != 32 or not elf.little_endian or elf['e_machine'] != 'EM_RISCV':
@@ -167,8 +169,8 @@ def audit(elf_path, image_path, sdkconfig, board):
     pinned = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD:third_party/esp-idf'], text=True).strip()
     if identity != pinned:
         raise ValueError('IDF checkout differs from repository pin')
-    inputs = [p for p in sorted((APP/'main').glob('*')) if p.suffix in ('.c', '.h')]
-    inputs += [APP.parent/'lcd-4p3/board_config.h', APP.parent/'lcd-5/board_config.h', Path(sdkconfig)]
+    inputs = [p for p in sorted((app/'main').glob('*')) if p.suffix in ('.c', '.h')]
+    inputs += [app.parent/'lcd-4p3/board_config.h', app.parent/'lcd-5/board_config.h', Path(sdkconfig)]
     source_hashes = ''.join(sha(p) for p in inputs)
     build_id = hashlib.sha256(source_hashes.encode()).hexdigest()
     if build_id.encode() not in Path(elf_path).read_bytes():
@@ -181,7 +183,7 @@ def audit(elf_path, image_path, sdkconfig, board):
                 elf=str(Path(elf_path).resolve()), image=str(Path(image_path).resolve()),
                 sdkconfig=str(Path(sdkconfig).resolve()), elf_sha256=sha(elf_path),
                 image_sha256=sha(image_path), sdkconfig_sha256=sha(sdkconfig),
-                idf_commit=identity, dependencies_sha256=sha(APP/'dependencies.lock'),
+                idf_commit=identity, dependencies_sha256=sha(app/'dependencies.lock'),
                 revision_min=min_rev, revision_max=max_rev, entry=entry,
                 allowed_regions=allowed, elf_segments=spans, image_segments=image_spans,
                 runtime_reserve=reserves, required_reserve=RESERVE)
@@ -189,7 +191,14 @@ def audit(elf_path, image_path, sdkconfig, board):
 
 def verify_manifest(path):
     expected = json.loads(Path(path).read_text())
-    actual = audit(expected['elf'], expected['image'], expected['sdkconfig'], expected['board'])
+    audit_root = expected.get('audit_root')
+    if audit_root:
+        for name, digest in expected['audit_inputs'].items():
+            if sha(Path(audit_root) / name) != digest:
+                raise ValueError('snapshot audit input hash mismatch')
+    actual = audit(expected['elf'], expected['image'], expected['sdkconfig'], expected['board'], audit_root)
+    if audit_root:
+        actual.update(audit_root=audit_root, audit_inputs=expected['audit_inputs'])
     # JSON-normalize tuple arrays before comparison.
     if json.loads(json.dumps(actual)) != expected:
         raise ValueError('RAM manifest does not match current audited artifacts')

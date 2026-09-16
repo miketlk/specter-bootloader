@@ -4,6 +4,7 @@ import os
 import time
 import zlib
 from pathlib import Path
+from .runtime import remaining, Failure
 from .protocol import ZERO, MAX_CHUNK, Frames, encode, decode, validate, valid_name
 
 
@@ -48,11 +49,12 @@ class Client:
         packet = encode(message)
         encoded = time.perf_counter() - started
         write_seconds = 0
-        total_end = time.monotonic() + timeout * 4
+        total_end = time.monotonic() + remaining(timeout * 4)
         if self.evidence:
             self.evidence.record('request', opcode=opcode, request_id=self.request_id,
                                  packet_sha256=hashlib.sha256(packet).hexdigest())
         for attempt in range(4):
+            remaining()
             writing = time.perf_counter()
             self.transport.write(packet)
             write_seconds += time.perf_counter() - writing
@@ -62,6 +64,7 @@ class Client:
             attempt_timeout = min(timeout, .25) if opcode == 'HELLO' and attempt == 0 else timeout
             deadline = min(total_end, time.monotonic() + attempt_timeout)
             while time.monotonic() < deadline:
+                remaining()
                 for magic, payload in self.frames.feed(self.transport.read()):
                     if magic != b'SPSD':
                         continue
@@ -74,7 +77,7 @@ class Client:
                             response['kind'] not in ('event', 'response')):
                         continue
                     if opcode != 'HELLO' and response['boot_nonce'] != self.nonce:
-                        raise RuntimeError('device restarted: fixture requires revalidation')
+                        raise Failure('IDENTITY_MISMATCH', 'Device restarted; fixture requires revalidation', 3)
                     if self.evidence:
                         self.evidence.record(response['kind'], message=response)
                     if response['kind'] == 'event':
@@ -83,7 +86,7 @@ class Client:
                         raise DeviceError(response)
                     if opcode == 'HELLO':
                         if response['boot_nonce'] == ZERO:
-                            raise ValueError('invalid device nonce')
+                            raise Failure('IDENTITY_MISMATCH', 'invalid device nonce', 3)
                         self.nonce = response['boot_nonce']
                     self._timing(opcode, total_s=time.perf_counter()-started,
                                  encode_s=encoded, serial_write_s=write_seconds,
@@ -97,15 +100,15 @@ class Client:
     def hello(self, expected=None):
         identity = self.request('HELLO')
         if identity.get('board') != self.board or identity.get('transport') != 'uart':
-            raise ValueError('board/transport identity mismatch')
+            raise Failure('IDENTITY_MISMATCH', 'board/transport identity mismatch', 3)
         if not 1 <= identity.get('chunk_max', 0) <= MAX_CHUNK:
-            raise ValueError('invalid device limits')
+            raise Failure('IDENTITY_MISMATCH', 'invalid device limits', 3)
         if identity.get('heap_free', 0) < 65536 or identity.get('stack_free', 0) < 4096:
-            raise ValueError('device runtime RAM margin below qualified minimum')
+            raise Failure('IDENTITY_MISMATCH', 'device runtime RAM margin below qualified minimum', 3)
         if expected:
             for key in ('chip', 'card_cid', 'build'):
                 if identity.get(key) != expected[key]:
-                    raise ValueError(f'{key} identity mismatch')
+                    raise Failure('IDENTITY_MISMATCH', f'{key} identity mismatch', 3)
         self.identity = identity
         return identity
 
@@ -119,7 +122,7 @@ class Client:
             if not next_cursor:
                 return entries
             if not cursor < next_cursor <= 65536 or len(entries) > 65536:
-                raise ValueError('invalid listing cursor')
+                raise Failure('VERIFY_MISMATCH', 'invalid listing cursor', 4)
             cursor = next_cursor
 
     def upload(self, source, name, expected_sha256=None, chunk_size=None):
@@ -155,7 +158,7 @@ class Client:
                 streamed.update(chunk)
                 offset += len(chunk)
                 if response['offset'] != offset:
-                    raise ValueError('unexpected accepted offset')
+                    raise Failure('VERIFY_MISMATCH', 'unexpected accepted offset', 4)
             current = os.fstat(input_file.fileno())
             if (input_file.read(1) or streamed.digest() != digest or
                     (original.st_size, original.st_mtime_ns, original.st_ctime_ns) !=
@@ -170,7 +173,7 @@ class Client:
             receipt = self.request('STATUS')
         if (receipt.get('state') != 'COMMITTED' or receipt.get('name') != name or
                 receipt.get('length') != length or receipt.get('sha256') != digest):
-            raise ValueError('commit readback receipt mismatch')
+            raise Failure('VERIFY_MISMATCH', 'commit readback receipt mismatch', 4)
         self.last_upload = dict(length=length, total_s=time.perf_counter()-started,
                                 local_hash_s=hash_seconds, chunk_size=chunk_size)
         if self.evidence:
@@ -185,5 +188,5 @@ class Client:
         result = self.request('VERIFY', dict(name=name,length=length,sha256=digest),
                               timeout=10 + length / 32768)
         if result.get('name') != name or result.get('length') != length or result.get('sha256') != digest:
-            raise ValueError('readback verification receipt mismatch')
+            raise Failure('VERIFY_MISMATCH', 'readback verification receipt mismatch', 4)
         return result

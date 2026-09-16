@@ -9,7 +9,7 @@ import pytest
 cbor2 = pytest.importorskip('cbor2', reason='optional SD uploader dependency')
 from sd_uploader.protocol import Frames, ZERO, decode, encode, valid_name
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def request():
@@ -34,7 +34,7 @@ def codec(tmp_path_factory):
 
 def test_golden(codec):
     frame = encode(request())
-    golden = (Path(__file__).parent/'fixtures/hello.hex.txt').read_text().strip()
+    golden = (Path(__file__).parent.parent/'fixtures/hello.hex.txt').read_text().strip()
     assert frame.hex() == golden
     payload = frame[10:-4]
     assert decode(payload) == request()

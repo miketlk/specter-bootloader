@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from .ram_image import verify_manifest, ROOT
 from .transport import SerialTransport
+from .runtime import remaining, Failure
 
 
 class RamLoader:
@@ -17,11 +18,11 @@ class RamLoader:
         self.endpoint = endpoint
         self.evidence = evidence
         version = subprocess.run([self.python, '-m', 'esptool', 'version'],
-                                 check=True, capture_output=True, text=True, timeout=10).stdout
+                                 check=True, capture_output=True, text=True, timeout=remaining(10)).stdout
         if version.strip().splitlines()[-1] != '4.12.0':
             raise ValueError('only pinned esptool 4.12.0 qualified')
         help_text = subprocess.run([self.python, '-m', 'esptool', '--help'],
-                                   check=True, capture_output=True, text=True, timeout=10).stdout
+                                   check=True, capture_output=True, text=True, timeout=remaining(10)).stdout
         self.load_command = 'load_ram' if 'load_ram' in help_text else 'load-ram'
         if self.load_command not in help_text:
             raise ValueError('installed esptool has no RAM loading command')
@@ -31,23 +32,33 @@ class RamLoader:
             raise ValueError('ROM subprocess operation is outside the read-only allow-list')
         self.evidence.record('rom-command', args=args)
         env = dict(os.environ, PYTHONPATH=str(ROOT / 'tools'))
-        result = subprocess.run([self.python, *args], capture_output=True, timeout=timeout, env=env)
+        result = subprocess.run([self.python, *args], capture_output=True, timeout=remaining(timeout), env=env)
         self.evidence.record('rom-result', returncode=result.returncode,
                              stdout=result.stdout.decode(errors='replace'),
                              stderr=result.stderr.decode(errors='replace'))
         if result.returncode:
-            raise RuntimeError('ROM operation failed; board must remain out of normal boot')
+            raise Failure('ROM_TRANSPORT', 'ROM operation failed; inspect run diagnostics', 5)
         return result
 
     def inspect(self, name, reset=False, hashes=True):
-        output = self.evidence.directory / name
+        # The subprocess may be killed during its ordinary write. Never let it
+        # write an authoritative evidence filename (or reuse a stale response).
+        output = self.evidence.directory / (name + '.probe')
+        output.unlink(missing_ok=True)
         args = ['-m', 'sd_uploader.rom_probe', '--port', self.endpoint['port'], '--output', str(output)]
         if reset:
             args += ['--reset']
         if hashes:
             args += ['--hashes']
         self._run(args, timeout=1800)
-        return json.loads(output.read_text())
+        result = json.loads(output.read_text())
+        if not isinstance(result, dict) or not isinstance(result.get('chip'), str) or not result['chip']:
+            raise ValueError('Invalid ROM identity evidence')
+        if hashes and (not isinstance(result.get('full_nor'), str) or not result['full_nor']):
+            raise ValueError('Missing full NOR digest')
+        self.evidence.save(name, result)
+        output.unlink(missing_ok=True)
+        return result
 
     def load(self, manifest, expected_chip):
         # Do not reopen the bridge between execution and HELLO: macOS CH343
@@ -68,17 +79,17 @@ class RamLoader:
             chip = ':'.join(f'{b:02x}' for b in rom.read_mac())
             if (rom.IS_STUB or info['flags'] or info['flash_crypt_cnt'] or chip != expected_chip or
                     not artifact['revision_min'] <= rom.get_chip_revision() <= artifact['revision_max']):
-                raise ValueError('ROM chip/revision/security mismatch')
+                raise Failure('IDENTITY_MISMATCH', 'ROM chip/revision/security mismatch', 3)
             args = ['--chip', 'esp32p4', '--before', 'no_reset', '--after', 'no_reset',
                     '--no-stub', '--baud', '921600', self.load_command, artifact['image']]
             self.evidence.record('ram-load', args=args, image_sha256=artifact['image_sha256'])
-            deadline = time.monotonic() + 120
+            deadline = time.monotonic() + remaining(120)
             original_command = rom.command
             def bounded_command(*command_args, **command_kwargs):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                seconds = min(deadline - time.monotonic(), remaining(120))
+                if seconds <= 0:
                     raise TimeoutError('RAM load exceeded 120-second deadline')
-                command_kwargs['timeout'] = min(command_kwargs.get('timeout', 3), remaining)
+                command_kwargs['timeout'] = min(command_kwargs.get('timeout', 3), seconds)
                 return original_command(*command_args, **command_kwargs)
             rom.command = bounded_command
             log = io.StringIO()

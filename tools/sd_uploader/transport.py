@@ -7,6 +7,7 @@ import sys
 import termios
 from pathlib import Path
 import serial
+from .runtime import Failure, remaining
 from serial.tools.list_ports import comports
 
 
@@ -17,10 +18,15 @@ def identify(port=None, serial_number=None, location=None):
                (location is None or p.location == location) and
                p.vid == 0x1a86 and p.pid == 0x55d3]
     if len(matches) != 1:
-        raise ValueError('expected exactly one configured CH343 USB-to-UART endpoint')
+        raise Failure('DEVICE_SELECTION', 'Expected exactly one configured CH343 endpoint; check devices and fixture serial/location', 3)
     endpoint = matches[0]
     return dict(port=endpoint.device, serial=endpoint.serial_number,
                 location=endpoint.location, vid=endpoint.vid, pid=endpoint.pid)
+
+
+def devices():
+    return [dict(port=p.device, serial=p.serial_number, location=p.location, vid=p.vid, pid=p.pid)
+            for p in comports() if p.vid == 0x1a86 and p.pid == 0x55d3]
 
 
 class FixtureLock:
@@ -62,11 +68,14 @@ class SerialTransport:
         self.serial.baudrate = baudrate
 
     def write(self, packet):
+        remaining()
         if self.serial.write(packet) != len(packet):
             raise OSError('short serial write')
+        remaining()
         self.serial.flush()
 
     def read(self):
+        remaining()
         # Wait only for the first byte, then drain what is already available.
         # read(4096) made every small ACK pay the complete 100 ms timeout.
         data = self.serial.read(max(1, min(self.serial.in_waiting, 32768)))

@@ -231,3 +231,133 @@ Options:
   -bin, --bin-output           Outputs firmware in raw binary format.
   --help                       Show this message and exit.
 ```
+
+## ESP32-P4 SD uploader
+
+`sd-uploader.py` stages files on a board's installed FAT32 microSD card through
+an independent, internal-RAM ESP-IDF application. It preserves unrelated files
+and refuses destination collisions. Package signing and installation remain the
+normal bootloader's responsibility.
+
+Activate the pinned ESP-IDF Python environment, install the optional dependencies
+with hashes, and [build the device application](../platforms/esp32-p4-wifi6-touch-lcd/sd_uploader/README.md).
+The uploader needs Python 3.11 or later; its requirements are separate from the
+legacy signing requirements. ROM operations currently require esptool 4.12.0.
+
+For an **already running** UART uploader:
+
+The default application/CLI rate is 4000000 baud. Explicit rates are 115200,
+460800, 921600, 2000000, 3000000, and 4000000; use `--baud` with the
+corresponding device build. ROM recovery always begins at 115200; the loader negotiates its
+RAM download rate and selects the application rate from the image manifest.
+
+```sh
+python tools/sd-uploader.py status --port PORT --board lcd-4p3 \
+  --session 0102030405060708090a0b0c0d0e0f10 --save-identity /tmp/sdu-identity.json
+python tools/sd-uploader.py list --port PORT --board lcd-4p3 \
+  --session 0102030405060708090a0b0c0d0e0f10
+python tools/sd-uploader.py upload --port PORT --board lcd-4p3 \
+  --session 0102030405060708090a0b0c0d0e0f10 --identity /tmp/sdu-identity.json \
+  fixture.dat --name development-fixture.dat
+python tools/sd-uploader.py verify --port PORT --board lcd-4p3 \
+  --session 0102030405060708090a0b0c0d0e0f10 fixture.dat --name development-fixture.dat
+python tools/sd-uploader.py release --port PORT --board lcd-4p3 \
+  --session 0102030405060708090a0b0c0d0e0f10 --identity /tmp/sdu-identity.json
+```
+
+Select a fresh nonzero 16-byte session token for each RAM boot and reuse it
+between commands. The example token is illustrative. One session owns the
+service until reset. Identity files bind mutations to board, build, chip and
+normalized card CID. The importable `sd_uploader.client.Client` implements the
+same operations. `remove NAME` removes one regular file; `abort` cancels an
+incomplete transaction. Names are root basenames, at most 128 printable ASCII
+bytes, without FAT-illegal characters or the reserved `_sdu_` prefix.
+
+Ordinary commands never reset or load the board. `run-case` owns the full
+lifecycle, with an explicitly authorized fixture, qualified CH343 reset control,
+RAM manifest, chip/card identity and read-only starting-state NOR evidence:
+
+```sh
+run_root=$(mktemp -d "${TMPDIR:-/tmp}/specter-sd-uploader.XXXXXX")
+python tools/sd-uploader.py run-case --fixture FIXTURE.json --case CASE.json \
+  --run "$run_root/example" --dry-run
+python tools/sd-uploader.py run-case --fixture FIXTURE.json --case CASE.json \
+  --run "$run_root/example"
+```
+
+Run evidence is retained under `$run_root`; copy it elsewhere if it must survive
+temporary-directory cleanup.
+
+Start from the [fixture](sd_uploader/fixtures/fixture.example.json) and
+[case](sd_uploader/fixtures/case.example.json) examples. Replace all placeholders;
+the example fixture is deliberately unauthorized. Paths in declarations are
+relative to their JSON file. A case's `starting_state_id` is the SHA-256 of its
+starting-state JSON; that JSON contains ROM identity/security and full-NOR hashes.
+A read-only ROM probe is available as `python -m sd_uploader.rom_probe` with
+`PYTHONPATH=tools`; `--reset` explicitly enters download mode and `--hashes`
+collects the full detected NOR capacity and canonical region hashes.
+
+`run-case` requires a new evidence directory (even an empty existing directory
+is rejected). It atomically reserves that directory after acquiring the bridge
+lock; use `recover` to reopen an interrupted run. Rejected lock acquisitions do
+not write evidence.
+
+The runner locks the identified bridge, checks security and starting NOR,
+loads the audited image with no stub, and keeps the same serial descriptor open
+through HELLO. It checks chip/build/card before staging, removes only explicitly
+named files, verifies every upload and the final upgrade-candidate set, releases
+SD, and compares all NOR before any normal boot. ROM MD5 detects accidental NOR
+changes; it is not release authentication. No flash writes, erase, provisioning,
+restoration, or eFuse changes are part of the service.
+
+`outcome: "stage-only"` leaves the board in ROM after comparison.
+`outcome: "approved-mock"` additionally performs the declared normal hardware
+reset and requires current-window, approval-aware mock telemetry. Its observation
+specifies numeric approved `version`, hex `build` (mock payload SHA-256), and
+`bloat`. Missing telemetry is a timeout. Negative and trial/fallback assertions
+without specific loader observations are rejected as unsupported. DTR/RTS reset
+is not a power cut; true power-cut tests need a separately qualified controller.
+
+Host journals, raw serial bytes, identity, file receipts, NOR hashes and outcomes
+are saved in the run directory. After interruption, `recover --fixture ...
+--run ...` requires the same checked image and unchanged NOR, reloads RAM,
+identifies the card, removes only exact reserved uploader temporary filenames,
+and recreates every declared file. It refuses to overwrite an unrelated original
+destination. It checks the complete candidate set, releases SD, and compares NOR
+again before following the case's declared boot outcome. An old receipt or
+filename alone never proves an interrupted fixture is valid.
+
+SPSD v1 uses `SPSD | 01 00 | payload_length:u32be | canonical CBOR | crc32:u32be`.
+CRC-32/ISO-HDLC covers the header after magic and the payload. Maximum payload is
+18432 bytes; WRITE chunks are at most 16384 bytes. Maps have text keys, deterministic
+length-first order, definite lengths and unsigned integer fields. The parser
+rejects duplicates, excessive depth/size, malformed UTF-8, tags, floats, indefinite
+lengths and trailing CBOR. Complete valid `SPMF` telemetry frames are demultiplexed
+without searching inside their payloads. Requests retry identical bytes with
+bounded deadlines; device boot nonces invalidate stale sessions.
+
+Uploads default to the device's advertised maximum chunk. For comparisons, use
+`upload ... --chunk-size 4096 --evidence RUN_DIRECTORY`, then
+`python tools/sd-uploader.py profile --run RUN_DIRECTORY`. The report separates
+local hashing, CBOR encoding, serial-write time, request latency, device framing
+and command work, flush/sync/close, temporary readback, publication, and final
+readback. Residual host/wait time includes serial receive, scheduling and evidence
+I/O; serial-write return time alone is not physical UART transmission time.
+Both host and device read available bytes without waiting to fill a large buffer.
+
+Run the host suite with `python -m pytest -q tools`. Uploader test modules
+explicitly skip when their optional Python dependencies are absent. For a
+dedicated uploader test job, install those dependencies and require their imports
+before running tests so missing packages cannot silently skip coverage:
+
+```sh
+python -m pip install --require-hashes -r tools/requirements-sd-uploader.txt
+python -c "import cbor2, elftools, serial" && python -m pytest -q tools/sd_uploader
+```
+
+The test environment also needs pytest. The storage fault harness
+uses a host C compiler, OpenSSL development files via `pkg-config`, and address/
+undefined-behavior sanitizers. Linked-image corruption tests additionally require
+the `lcd-4p3` RAM build. UART hardware qualification uses the real board and card;
+ESP32-P4 QEMU is not a substitute. The serial backend currently targets macOS and
+POSIX hosts; each bridge/host reset behavior requires qualification.

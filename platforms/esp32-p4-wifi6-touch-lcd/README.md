@@ -66,6 +66,9 @@ Root Loader checks with:
 platforms/esp32-p4-wifi6-touch-lcd/tools/validate.sh
 ```
 
+The script prints its temporary output directory and retains the Root Loader
+diff there for inspection. Firmware build artifacts remain under `build/`.
+
 Run `tools/diff-root-loader.sh` to inspect the complete delta from the pinned
 stock `bootloader_start.c`.
 

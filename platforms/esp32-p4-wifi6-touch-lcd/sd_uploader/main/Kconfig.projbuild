@@ -1,0 +1,13 @@
+choice SDU_BOARD
+    prompt "Uploader board"
+    default SDU_BOARD_4P3
+config SDU_BOARD_4P3
+    bool "lcd-4p3"
+config SDU_BOARD_5
+    bool "lcd-5"
+endchoice
+
+config SDU_UART_BAUD
+    int "Uploader UART baud (ROM download starts at 115200)"
+    range 115200 4000000
+    default 4000000

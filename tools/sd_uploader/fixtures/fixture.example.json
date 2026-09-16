@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "authorized": false,
+  "board": "lcd-4p3",
+  "bridge_serial": "REPLACE_WITH_AUTHORIZED_BRIDGE_SERIAL",
+  "bridge_location": "REPLACE_WITH_USB_LOCATION",
+  "chip": "REPLACE_WITH_P4_MAC",
+  "card_cid": "REPLACE_WITH_NORMALIZED_CARD_CID",
+  "ram_manifest": "../../../build/esp32-p4-wifi6-touch-lcd/sd-uploader/lcd-4p3/uart/ram-manifest.json",
+  "idf_python": "/ABSOLUTE/PATH/TO/PINNED/IDF/python",
+  "starting_state": "starting-state.json",
+  "reset_controller": "qualified-ch343"
+}

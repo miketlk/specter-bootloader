@@ -1,0 +1,5 @@
+rsource "../../../../../third_party/esp-idf/components/fatfs/Kconfig"
+# ffconf.h requires the sector-size constant even with no WL backend.
+config WL_SECTOR_SIZE
+    int
+    default 512

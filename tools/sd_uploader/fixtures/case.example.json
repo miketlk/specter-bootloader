@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "empty-media-fixture",
+  "starting_state_id": "REPLACE_WITH_SHA256_OF_STARTING_STATE_JSON",
+  "files": [],
+  "remove": [],
+  "expected_candidates": [],
+  "allowed_resets": ["rom-entry", "rom-verify", "normal-boot"],
+  "outcome": "stage-only",
+  "timeout": 30,
+  "observation": {}
+}

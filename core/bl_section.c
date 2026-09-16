@@ -11,12 +11,14 @@
  * big-endian machines is not planned.
  */
 
-#include <string.h>
-#include "crc32.h"
-#include "sha2.h"
 #include "bl_section.h"
+
+#include <string.h>
+
 #include "bl_util.h"
+#include "crc32.h"
 #include "segwit_addr.h"
+#include "sha2.h"
 
 /// Name used to identify signature section
 #define BL_SIGNATURE_SECT_NAME "sign"
@@ -295,6 +297,19 @@ bool blsect_get_attr_str(const bl_section_t* p_hdr, bl_attr_t attr_id,
         *dst = '\0';
         return true;
       }
+    }
+  }
+  return false;
+}
+
+bool blsect_get_attr_bytes(const bl_section_t* p_hdr, bl_attr_t attr_id,
+                           uint8_t* buf, size_t size) {
+  if (p_hdr && buf && size) {
+    int idx =
+        find_attribute(p_hdr->attr_list, sizeof(p_hdr->attr_list), attr_id);
+    if (idx >= 0 && p_hdr->attr_list[idx] == size) {
+      memcpy(buf, &p_hdr->attr_list[idx + 1], size);
+      return true;
     }
   }
   return false;

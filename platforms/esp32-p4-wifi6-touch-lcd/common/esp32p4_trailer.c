@@ -19,8 +19,6 @@
 #include "esp_partition.h"
 #include "nvs.h"
 
-#define SPECTER_JOURNAL_OFFSET 0x80U
-
 static const char* TAG = "specter-approval";
 static uint32_t pending_sequence[4];
 
@@ -36,21 +34,21 @@ _Static_assert(SPECTER_JOURNAL_OFFSET + sizeof(specter_boot_journal_record_t) <=
 _Static_assert(0U == SPECTER_JOURNAL_OFFSET % SPECTER_FLASH_WRITE_GRANULE,
                "boot journal offset is not encryption-block aligned");
 _Static_assert(0U == offsetof(specter_approval_record_t, commit_crc) %
-                        SPECTER_FLASH_WRITE_GRANULE,
+                         SPECTER_FLASH_WRITE_GRANULE,
                "approval commit is not encryption-block aligned");
 _Static_assert(SPECTER_FLASH_WRITE_GRANULE ==
                    sizeof(specter_approval_record_t) -
                        offsetof(specter_approval_record_t, commit_crc),
                "approval commit must occupy one encryption block");
 _Static_assert(0U == offsetof(specter_boot_journal_record_t, commit_crc) %
-                        SPECTER_FLASH_WRITE_GRANULE,
+                         SPECTER_JOURNAL_WRITE_GRANULE,
                "journal commit is not encryption-block aligned");
-_Static_assert(SPECTER_FLASH_WRITE_GRANULE ==
+_Static_assert(SPECTER_JOURNAL_WRITE_GRANULE ==
                    sizeof(specter_boot_journal_record_t) -
                        offsetof(specter_boot_journal_record_t, commit_crc),
                "journal commit must occupy one encryption block");
 _Static_assert(0U == sizeof(specter_boot_journal_record_t) %
-                        SPECTER_FLASH_WRITE_GRANULE,
+                         SPECTER_JOURNAL_WRITE_GRANULE,
                "journal stride is not encryption-block aligned");
 
 static uint32_t record_crc(const void* record, size_t crc_offset) {
@@ -192,9 +190,9 @@ bool specter_esp32p4_approval_invalidate(specter_esp32p4_role_t role) {
                                              SPECTER_ESP32P4_TRAILER_SIZE);
 }
 
-bool specter_esp32p4_approval_create(specter_esp32p4_role_t role,
-                                     uint32_t image_length,
-                                     uint32_t semantic_version) {
+static bool approval_create(specter_esp32p4_role_t role, uint32_t image_length,
+                            uint32_t semantic_version,
+                            const uint8_t* expected_sha256) {
   const esp_partition_t* partition = specter_esp32p4_partition(role);
   const esp_partition_t* running = esp_ota_get_running_partition();
   if (!partition || !specter_esp32p4_candidate_prepared(role) ||
@@ -235,6 +233,12 @@ bool specter_esp32p4_approval_create(specter_esp32p4_role_t role,
   }
   memcpy(record.image_sha256, metadata.image_digest,
          sizeof(record.image_sha256));
+  if (expected_sha256 && 0 != memcmp(expected_sha256, record.image_sha256,
+                                     sizeof(record.image_sha256))) {
+    ESP_LOGE(TAG, "candidate %s does not match signed image digest",
+             partition->label);
+    return false;
+  }
 
   if (!firmware_version_floor_set(partition->address, semantic_version)) {
     return false;
@@ -256,6 +260,13 @@ bool specter_esp32p4_approval_create(specter_esp32p4_role_t role,
 
   specter_approval_record_t check;
   return specter_esp32p4_approval_read(role, &check, true);
+}
+
+bool specter_esp32p4_approval_create_authorized(
+    specter_esp32p4_role_t role, uint32_t image_length,
+    uint32_t semantic_version, const uint8_t expected_sha256[32]) {
+  return expected_sha256 &&
+         approval_create(role, image_length, semantic_version, expected_sha256);
 }
 
 bool specter_esp32p4_journal_append(specter_esp32p4_role_t role,
@@ -306,12 +317,47 @@ bool specter_esp32p4_journal_append(specter_esp32p4_role_t role,
                                   sizeof(record) - prefix_size);
 }
 
+specter_boot_journal_state_t specter_esp32p4_journal_state(
+    specter_esp32p4_role_t role, uint32_t sequence) {
+  const esp_partition_t* partition = specter_esp32p4_partition(role);
+  specter_boot_journal_state_t state = specter_journal_none;
+  if (!partition || !sequence ||
+      (role != specter_role_boot_a && role != specter_role_boot_b)) {
+    return state;
+  }
+
+  specter_boot_journal_record_t record;
+  size_t offset = trailer_offset(partition) + SPECTER_JOURNAL_OFFSET;
+  while (offset + sizeof(record) <= partition->size) {
+    if (ESP_OK !=
+            esp_partition_read(partition, offset, &record, sizeof(record)) ||
+        record.magic == UINT32_MAX) {
+      break;
+    }
+    if (record.magic == SPECTER_JOURNAL_MAGIC &&
+        record.revision == SPECTER_JOURNAL_REVISION &&
+        record.sequence == sequence &&
+        (record.state == specter_journal_attempted ||
+         record.state == specter_journal_confirmed) &&
+        record.commit_crc ==
+            record_crc(&record,
+                       offsetof(specter_boot_journal_record_t, commit_crc))) {
+      state = (specter_boot_journal_state_t)record.state;
+    }
+    offset += sizeof(record);
+  }
+  return state;
+}
+
 bool bl_icr_create(bl_addr_t address, uint32_t section_size,
                    uint32_t image_size, uint32_t image_version) {
-  specter_esp32p4_role_t role = specter_esp32p4_role_for_base(address);
-  const esp_partition_t* partition = specter_esp32p4_partition(role);
-  return partition && partition->size == section_size &&
-         specter_esp32p4_approval_create(role, image_size, image_version);
+  (void)address;
+  (void)section_size;
+  (void)image_size;
+  (void)image_version;
+  // ESP32-P4 approval requires the signed digest passed only through the
+  // platform finalization syscall; the legacy ICR entry point is fail-closed.
+  return false;
 }
 
 bool bl_icr_verify(bl_addr_t address, uint32_t section_size,
@@ -357,8 +403,10 @@ static bool firmware_version_floor_set(bl_addr_t address,
                                        uint32_t image_version) {
   specter_esp32p4_role_t role = specter_esp32p4_role_for_base(address);
   const char* key = floor_key(role);
-  if (!key || image_version <= BL_VERSION_NA ||
-      image_version > BL_VERSION_MAX) {
+  // The erase transaction preserves BL_VERSION_NA on a first installation.
+  // It must not fail or lower an existing floor. Candidate approval separately
+  // rejects BL_VERSION_NA before calling this helper.
+  if (!key || image_version > BL_VERSION_MAX) {
     return false;
   }
   nvs_handle_t handle;
@@ -404,7 +452,6 @@ bool bl_vcr_create(bl_addr_t address, uint32_t section_size,
 uint32_t bl_vcr_get_version(bl_addr_t address, uint32_t section_size,
                             bl_vcr_place_t place) {
   (void)section_size;
-  return ((int)place & (int)bl_vcr_any)
-             ? firmware_version_floor_get(address)
-             : BL_VERSION_NA;
+  return ((int)place & (int)bl_vcr_any) ? firmware_version_floor_get(address)
+                                        : BL_VERSION_NA;
 }

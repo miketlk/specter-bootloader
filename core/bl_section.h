@@ -9,8 +9,8 @@
 /// Avoids multiple inclusion of the same file
 #define BL_SECTION_H_INCLUDED
 
-#include "bl_util.h"
 #include "bl_syscalls.h"
+#include "bl_util.h"
 /// Magic word, "SECT" in LE
 #define BL_SECT_MAGIC 0x54434553UL
 /// Structure revision
@@ -29,10 +29,13 @@ typedef uint64_t bl_uint_t;
 
 /// Attribute identifiers
 typedef enum bl_attr_t {
-  bl_attr_algorithm = 1,    ///< Digital signature algorithm, string
-  bl_attr_base_addr = 2,    ///< Base address of firmware
-  bl_attr_entry_point = 3,  ///< Entry point of firmware
-  bl_attr_platform = 4      ///< Platform identifier, string
+  bl_attr_algorithm = 1,       ///< Digital signature algorithm, string
+  bl_attr_base_addr = 2,       ///< Base address of firmware
+  bl_attr_entry_point = 3,     ///< Entry point of firmware
+  bl_attr_platform = 4,        ///< Platform identifier, string
+  bl_attr_payload_format = 5,  ///< Payload representation, string
+  bl_attr_payload_target = 6,  ///< Logical destination role, string
+  bl_attr_payload_sha256 = 7   ///< Exact canonical payload digest, bytes
 } bl_attr_t;
 
 /**
@@ -150,6 +153,12 @@ bool blsect_get_attr_uint(const bl_section_t* p_hdr, bl_attr_t attr_id,
  */
 bool blsect_get_attr_str(const bl_section_t* p_hdr, bl_attr_t attr_id,
                          char* buf, size_t buf_size);
+
+/**
+ * Gets an exact-size byte-string attribute from a section header.
+ */
+bool blsect_get_attr_bytes(const bl_section_t* p_hdr, bl_attr_t attr_id,
+                           uint8_t* buf, size_t size);
 
 /**
  * Calculates hash of a Payload section reading payload from flash memory

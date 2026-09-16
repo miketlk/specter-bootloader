@@ -5,9 +5,12 @@
 
 from intelhex import IntelHex
 import click
+import struct
+import zlib
 from core.integritychk import *
 from core.memmap import *
-from core.blsection import MAX_PAYLOAD_SIZE
+from core.blsection import MAX_PAYLOAD_SIZE, find_payload_version
+from core.espidf import EspIdfImageError, validate_esp32p4_app_image
 __author__ = "Mike Tolkachev <contact@miketolkachev.dev>"
 __copyright__ = "Copyright 2020 Crypto Advance GmbH. All rights reserved"
 __version__ = "1.0.0"
@@ -25,14 +28,14 @@ def cli():
 @cli.command()
 @click.option(
     '-s', '--startup', 'startup_hex',
-    required=True,
+    required=False,
     type=click.File('r'),
     help='Intel HEX file containing the Start-up code.',
     metavar='<file.hex>'
 )
 @click.option(
     '-b', '--bootloader', 'bootloader_hex',
-    required=True,
+    required=False,
     type=click.File('r'),
     help='Intel HEX file containing the Bootloader.',
     metavar='<file.hex>'
@@ -43,6 +46,18 @@ def cli():
     help='Intel HEX file containing the Main Firmware.',
     metavar='<file.hex>'
 )
+@click.option(
+    '--esp32-app', 'esp32_app', type=click.File('rb'),
+    help='Canonical hash-appended ESP-IDF application image.',
+    metavar='<file.bin>'
+)
+@click.option('--esp32-platform', type=str, metavar='<platform>')
+@click.option(
+    '--esp32-role', type=click.Choice(['boot_a', 'boot_b', 'main']))
+@click.option('--sequence', type=click.IntRange(min=1, max=0xffffffff),
+              default=1, show_default=True)
+@click.option('--confirmed', is_flag=True,
+              help='Include a confirmed journal record for a boot role.')
 @click.option(
     '-bin', '--bin-output', 'bin_out',
     required=False,
@@ -56,11 +71,29 @@ def cli():
     type=click.STRING,
     metavar='<output_file_name>'
 )
-def combine(out_file, startup_hex, bootloader_hex, firmware_hex, bin_out):
+def combine(out_file, startup_hex, bootloader_hex, firmware_hex, esp32_app,
+            esp32_platform, esp32_role, sequence, confirmed, bin_out):
     """This command makes a firmare file for initial programming of a "clean"
     defice. The firmware file is made by combining together the Start-up code,
     the Bootloader, and, optionally, the Main Firmware.
     """
+
+    if esp32_app:
+        if startup_hex or bootloader_hex or firmware_hex or bin_out:
+            raise click.ClickException(
+                "ESP32 trailer mode cannot be combined with STM32 inputs")
+        if not esp32_platform or not esp32_role:
+            raise click.ClickException(
+                "ESP32 trailer mode requires --esp32-platform and --esp32-role")
+        trailer = make_esp32p4_trailer(
+            esp32_app.read(), esp32_platform, esp32_role, sequence, confirmed)
+        with open(out_file, "wb") as file_obj:
+            file_obj.write(trailer)
+        return
+
+    if not startup_hex or not bootloader_hex:
+        raise click.ClickException(
+            "STM32 mode requires --startup and --bootloader")
 
     # Create initial firmware: begin with a HEX file of the Start-up code
     out_ih = IntelHex(startup_hex)
@@ -130,6 +163,45 @@ def intelhex_add_icr(ih_obj, storage_size):
     icr = icr_create(intelhex_to_bytes(ih_obj))
     addr = ih_obj.minaddr() + storage_size - BL_ICR_OFFSET_FROM_END
     intelhex_add_data(ih_obj, addr, icr)
+
+
+def make_esp32p4_trailer(image, platform, role, sequence, confirmed=False):
+    """Builds a fixed-role approval trailer for initial USB provisioning."""
+    try:
+        digest = validate_esp32p4_app_image(image)
+    except EspIdfImageError as error:
+        raise click.ClickException(
+            f"ESP32 application image is not canonical: {error}") from error
+    role_ids = {'boot_a': 1, 'boot_b': 2, 'main': 3}
+    if role not in role_ids or not isinstance(platform, str):
+        raise click.ClickException("Invalid ESP32 platform or role")
+    platform_bytes = platform.encode('ascii')
+    if len(platform_bytes) >= 40:
+        raise click.ClickException("ESP32 platform identifier is too long")
+    if confirmed and role == 'main':
+        raise click.ClickException("Main Firmware has no confirmation journal")
+    version = find_payload_version(image)
+    if not version:
+        raise click.ClickException("ESP32 application has no version tag")
+
+    approval_prefix = struct.pack(
+        '<8sII40sIIIII32sI', b'SPAPRV2', 2, 128,
+        platform_bytes, role_ids[role], version, len(image), sequence,
+        0x41505052, digest, 0xffffffff)
+    approval = (approval_prefix + struct.pack('<I', zlib.crc32(approval_prefix)) +
+                bytes([0xff]) * 12)
+    trailer = bytearray([0xff]) * 0x1000
+    trailer[:len(approval)] = approval
+
+    if confirmed:
+        journal_prefix = struct.pack(
+            '<IIII16s', 0x4A525053, 2, sequence, 0x434F4E46,
+            bytes([0xff]) * 16)
+        journal = (journal_prefix +
+                   struct.pack('<I', zlib.crc32(journal_prefix)) +
+                   bytes([0xff]) * 28)
+        trailer[0x80:0x80 + len(journal)] = journal
+    return bytes(trailer)
 
 
 if __name__ == '__main__':

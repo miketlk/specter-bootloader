@@ -9,12 +9,13 @@
 /// Avoids multiple inclusion of the same file
 #define BOOTLOADER_H_INCLUDED
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
-#include "bl_util.h"
+
 #include "bl_signature.h"
 #include "bl_syscalls.h"
+#include "bl_util.h"
 
 /// Bootloader arguments stored in the Start-up Mailbox
 typedef struct BL_ATTRS((packed)) bl_args_t {
@@ -29,7 +30,10 @@ typedef enum bl_flags_t_ {
   /// Disables check of arguments CRC (argument structure is considered valid)
   bl_flag_no_args_crc_check = (1 << 0),
   /// Allows upgrading to release candidates (probably unstable) versions
-  bl_flag_allow_rc_versions = (1 << 1)
+  bl_flag_allow_rc_versions = (1 << 1),
+  /// Checks initialization, crypto, display and media without processing
+  /// updates
+  bl_flag_check_only = (1 << 2)
 } bl_flags_t;
 
 /// Bootloader exit status
@@ -169,11 +173,11 @@ typedef enum version_check_res_t {
 
 /// Version identifiers
 typedef enum version_id_t {
-  version_id_startup = 0, ///< Version of the Start-up code
-  version_id_bootloader1, ///< Version of Bootloader's 1-st copy
-  version_id_bootloader2, ///< Version of Bootloader's 2-st copy
-  version_id_main,        ///< Version of the Main Firmware
-  n_version_id_           ///< Number of version identifiers (not an identifier)
+  version_id_startup = 0,  ///< Version of the Start-up code
+  version_id_bootloader1,  ///< Version of Bootloader's 1-st copy
+  version_id_bootloader2,  ///< Version of Bootloader's 2-st copy
+  version_id_main,         ///< Version of the Main Firmware
+  n_version_id_  ///< Number of version identifiers (not an identifier)
 } version_id_t;
 
 #endif  // BOOTLOADER_H_DEFINE_PRIVATE_TYPES

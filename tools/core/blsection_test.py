@@ -149,6 +149,22 @@ class TestPayloadSection:
         with pytest.raises(TypeError):
             sect.attributes = {'a4': 12345}
 
+    def test_binary_payload_digest_attribute_roundtrip(self):
+        digest = bytes(range(32))
+        payload = b'<version:tag10>0100000299</version:tag10>'
+        section = PayloadSection(
+            name='main', payload=payload,
+            attributes={
+                'bl_attr_platform': 'esp32-p4-wifi6-touch-lcd-4p3',
+                'bl_attr_payload_format': 'esp-idf-app',
+                'bl_attr_payload_target': 'main',
+                'bl_attr_payload_sha256': digest,
+            })
+        serialized = section.serialize()
+        restored, offset = Section.deserialize(serialized)
+        assert offset == len(serialized)
+        assert restored.attributes['bl_attr_payload_sha256'] == digest
+
     def test_version(self):
         payload = b'Something useless<version:tag10>0102213405</version:tag10>'
         sect = PayloadSection("boot", payload)

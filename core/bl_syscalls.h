@@ -9,9 +9,9 @@
 /// Avoids multiple inclusion of the same file
 #define BL_SYSCALLS_H_INCLUDED
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 #include <stdio.h>
 #ifdef BL_NO_FATFS
 // User provided configuration header for file system definitions
@@ -173,6 +173,18 @@ bool blsys_flash_write(bl_addr_t addr, const void* buf, size_t len);
  * @return       true if successful
  */
 bool blsys_flash_crc32(uint32_t* p_crc, bl_addr_t addr, size_t len);
+
+/** Returns the signed application payload format supported by this platform. */
+const char* blsys_payload_format(void);
+
+/**
+ * Validates and commits a copied candidate as the final upgrade operation.
+ * Legacy platforms ignore expected_sha256 and create their existing ICR.
+ */
+bool blsys_flash_finalize(bl_addr_t addr, uint32_t section_size,
+                          uint32_t image_size, uint32_t image_version,
+                          const uint8_t* expected_sha256,
+                          size_t expected_sha256_size);
 
 /**
  * Enables or disables write protection of flash memory

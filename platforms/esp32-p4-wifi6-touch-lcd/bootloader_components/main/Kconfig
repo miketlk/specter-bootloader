@@ -1,10 +1,9 @@
 choice SPECTER_ROOT_VALIDATION_TARGET
-    prompt "Phase 2 exact-load validation target"
+    prompt "Application placement target"
     default SPECTER_ROOT_VALIDATION_TARGET_BOOT_A
     help
-        Select one fixed application role for the Phase 2 Root Loader smoke
-        build. Production selection, approval records, and trial state are
-        implemented in later port phases.
+        Select where idf.py places the application artifact. Root Loader
+        runtime selection always uses approval, request, and trial state.
 
     config SPECTER_ROOT_VALIDATION_TARGET_BOOT_A
         bool "boot_a"

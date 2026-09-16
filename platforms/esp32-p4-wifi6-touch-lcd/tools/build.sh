@@ -9,6 +9,7 @@ board=${SPECTER_BOARD:-4p3}
 keys=${SPECTER_KEYS:-test}
 app=${SPECTER_APP:-bootloader}
 mock_bloat=${SPECTER_MOCK_BLOAT_BYTES:-0}
+mock_version=${SPECTER_MOCK_VERSION:-1.0.0}
 
 # Only mock-main resolves the exactly pinned official CBOR component. The
 # bootloader remains a dependency-manager-free build.
@@ -97,6 +98,24 @@ case "$mock_bloat" in
     exit 2
     ;;
 esac
+mock_version_major=${mock_version%%.*}
+mock_version_remainder=${mock_version#*.}
+mock_version_minor=${mock_version_remainder%%.*}
+mock_version_patch=${mock_version_remainder#*.}
+case "$mock_version_major:$mock_version_minor:$mock_version_patch" in
+  *[!0-9:]*|*:*:*:*)
+    echo "error: SPECTER_MOCK_VERSION must be major.minor.patch" >&2
+    exit 2
+    ;;
+esac
+if [ -z "$mock_version_major" ] || [ -z "$mock_version_minor" ] ||
+    [ -z "$mock_version_patch" ] ||
+    [ "$mock_version_major" -gt 41 ] 2>/dev/null ||
+    [ "$mock_version_minor" -gt 999 ] 2>/dev/null ||
+    [ "$mock_version_patch" -gt 999 ] 2>/dev/null; then
+  echo "error: SPECTER_MOCK_VERSION components exceed tag10 bounds" >&2
+  exit 2
+fi
 if [ "$mock_bloat" -gt 4294967295 ] 2>/dev/null; then
   echo "error: SPECTER_MOCK_BLOAT_BYTES exceeds uint32_t" >&2
   exit 2
@@ -148,4 +167,5 @@ exec "$platform_dir/tools/idf.sh" \
   -D "SPECTER_APP=$app" \
   -D "SPECTER_BOARD_PROFILE=$board_profile" \
   -D "SPECTER_MOCK_BLOAT_BYTES=$mock_bloat" \
+  -D "SPECTER_MOCK_VERSION=$mock_version" \
   "$@"

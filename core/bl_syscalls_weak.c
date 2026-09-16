@@ -5,13 +5,15 @@
  * @copyright  Copyright 2020 Crypto Advance GmbH. All rights reserved.
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
-#include "crc32.h"
-#include "bl_util.h"
+
+#include "bl_integrity_check.h"
 #include "bl_syscalls.h"
+#include "bl_util.h"
+#include "crc32.h"
 
 #ifndef PLATFORM_ID
 /// Fallback platform identifier (normally should be defined in build)
@@ -45,6 +47,7 @@ BL_WEAK bool blsys_flash_map_get_items(int items, ...) {
     bl_flash_map_item_t item_id = (bl_flash_map_item_t)va_arg(ap, int);
     bl_addr_t* p_item = va_arg(ap, bl_addr_t*);
     if ((int)item_id < 0 || (int)item_id >= bl_flash_map_nitems || !p_item) {
+      va_end(ap);
       return false;
     }
     *p_item = bl_flash_map[item_id];
@@ -84,6 +87,18 @@ BL_WEAK bool blsys_flash_crc32(uint32_t* p_crc, bl_addr_t addr, size_t len) {
   return false;
 }
 
+BL_WEAK const char* blsys_payload_format(void) { return NULL; }
+
+BL_WEAK bool blsys_flash_finalize(bl_addr_t addr, uint32_t section_size,
+                                  uint32_t image_size, uint32_t image_version,
+                                  const uint8_t* expected_sha256,
+                                  size_t expected_sha256_size) {
+  if (expected_sha256 || expected_sha256_size) {
+    return false;
+  }
+  return bl_icr_create(addr, section_size, image_size, image_version);
+}
+
 BL_WEAK bool blsys_flash_write_protect(bl_addr_t addr, size_t size,
                                        bool enable) {
   return true;
@@ -111,7 +126,7 @@ BL_WEAK bool blsys_media_mount(uint32_t device_idx) {
 BL_WEAK void blsys_media_umount(void) {}
 
 BL_WEAK const char* blsys_ffind_first(bl_ffind_ctx_t* ctx, const char* path,
-                                   const char* pattern) {
+                                      const char* pattern) {
 #ifndef BL_NO_FATFS
   if (ctx && path && pattern) {
     // Only 8 bit encodings are supported
@@ -166,7 +181,7 @@ static int get_fatfs_mode(const char* mode) {
 }
 
 BL_WEAK bl_file_t blsys_fopen(bl_file_obj_t* p_file_obj, const char* filename,
-                           const char* mode) {
+                              const char* mode) {
 #ifndef BL_NO_FATFS
   if (p_file_obj && filename && mode && sizeof(char) == sizeof(TCHAR)) {
     int fatfs_mode = get_fatfs_mode(mode);
@@ -266,9 +281,8 @@ BL_ATTRS((weak, noreturn)) void blsys_fatal_error(const char* text) {
 }
 
 BL_WEAK bl_alert_status_t blsys_alert(blsys_alert_type_t type,
-                                      const char* caption,
-                                      const char* text, uint32_t time_ms,
-                                      uint32_t flags) {
+                                      const char* caption, const char* text,
+                                      uint32_t time_ms, uint32_t flags) {
   if (bl_alert_error == type || BL_FOREVER == time_ms) {
     blsys_media_umount();
     blsys_deinit();

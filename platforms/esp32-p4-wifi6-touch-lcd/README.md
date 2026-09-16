@@ -1,11 +1,9 @@
 # ESP32-P4 Waveshare Platform
 
-This directory contains the ESP-IDF project and Root Loader scaffold for the
-Waveshare 4.3-inch and 5-inch ESP32-P4 boards. The current application is a
-toolchain, partition-layout, and exact-load validator; it is not yet a complete
-Specter Bootloader port. Platform syscalls, approval trailers, trial and
-confirmation state, SDMMC, display, and touch support are implemented in later
-port phases.
+This directory contains the ESP-IDF Specter Bootloader application, immutable
+Root Loader, board support, and Mock Main Firmware fixture for the Waveshare
+4.3-inch and 5-inch ESP32-P4 boards. The Root Loader accepts only the three
+fixed application roles and exact, committed approval records.
 
 ## Pinned build environment
 
@@ -37,13 +35,14 @@ The build profiles are:
 There is no encrypted development profile because ESP32-P4 hardware flash
 encryption requires irreversible eFuse programming.
 
-## Exact-load validation
+## Root Loader selection
 
-The `boot-a`, `boot-b`, and `main` variants prove that the custom Root Loader
-can select each fixed application role. The override checks every allowed
-partition's exact label, type, subtype, offset, and size; rejects `otadata` and
-unexpected application partitions; and gives the stock ESP-IDF handoff path an
-isolated state containing only the selected partition.
+The Root Loader checks every allowed partition's exact label, type, subtype,
+offset, and size; rejects `otadata` and unexpected application partitions; and
+gives the stock ESP-IDF handoff path an isolated state containing only the
+selected partition. It verifies the committed role, platform, version, exact
+image length, appended ESP-IDF SHA-256, and approval CRC before loading an
+image.
 
 The generated flash metadata places the validation application at:
 
@@ -53,9 +52,12 @@ The generated flash metadata places the validation application at:
 | `boot_b` | `0x120000` |
 | `main` | `0x220000` |
 
-This compile-time target selection is validation scaffolding. Production Root
-Loader selection must additionally implement approval records, image hashes,
-reset-retained requests, and bootloader trial and fallback state.
+Ordinary resets select a confirmed Specter Bootloader. A newer approved copy
+gets one durable trial; it must restart through the Root Loader to confirm
+itself, otherwise the next reset falls back to the older confirmed copy.
+Main Firmware is loaded only through a CRC-protected software-reset request
+from Specter Bootloader. Root Loader and the partition table are not field
+upgrade targets.
 
 Run the complete local compile, size, layout, configuration, dependency, and
 Root Loader checks with:
@@ -153,6 +155,11 @@ make esp32-p4-wifi6-touch-lcd-mock BOARD=lcd-4p3 MOCK_BLOAT_SIZE=0
 make esp32-p4-wifi6-touch-lcd-mock BOARD=lcd-5 MOCK_BLOAT_SIZE=1048576
 ```
 
+Set `SPECTER_MOCK_VERSION=major.minor.patch` when producing a newer payload for
+an upgrade test. Major is limited to 41; minor and patch are limited to 999,
+matching `BL_VERSION_MAX`. The build embeds the matching Specter `tag10`
+version and ESP application descriptor version.
+
 Each build writes a machine-readable `mock-manifest.json` beside the mock ELF,
 map, and canonical hash-appended binary. The post-link checker rejects an
 incorrect or non-loadable filler section and any image that overlaps the
@@ -173,9 +180,19 @@ python platforms/esp32-p4-wifi6-touch-lcd/mock_app/tools/mock_telemetry.py \
   --port /dev/cu.usbmodemXXXX --board lcd-4p3 --bloat 0 --pretty
 ```
 
-Direct development flashing is useful for display and UART bring-up, but an
-absent or invalid approval record in that workflow is expected and does not
-prove the final approved Root Loader handoff or microSD upgrade path.
+Generate a normal M-of-N-signed Main Firmware upgrade package from the mock
+binary with the shared tool and copy it to the microSD root:
+
+```sh
+tools/upgrade-generator.py gen \
+  --firmware-bin build/.../specter_esp32p4_mock_main.bin \
+  --platform esp32-p4-wifi6-touch-lcd-4p3 \
+  --private-key maintainer.pem specter_upgrade_mock.bin
+```
+
+Additional signatures use the unchanged `sign`, `message`, and `import-sig`
+commands. Direct development flashing remains useful for display and UART
+bring-up, but does not prove the approved Root Loader or microSD path.
 
 The `encrypted-production` profile is compile-only by default because first
 boot can burn irreversible security eFuses. Passing any IDF flash command with

@@ -1,0 +1,5 @@
+include("${ENCODER}")
+specter_encode_mock_version("${VERSION}" encoded)
+if(NOT encoded STREQUAL EXPECTED)
+    message(FATAL_ERROR "${VERSION} encoded as ${encoded}, expected ${EXPECTED}")
+endif()

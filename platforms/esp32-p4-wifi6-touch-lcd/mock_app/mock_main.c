@@ -11,7 +11,15 @@
 #include "mock_status.h"
 #include "mock_telemetry.h"
 
+#ifndef SPECTER_MOCK_VERSION_TAG
+#define SPECTER_MOCK_VERSION_TAG "0100000099"
+#endif
+
+static const char version_tag[] __attribute__((used)) =
+    "<version:tag10>" SPECTER_MOCK_VERSION_TAG "</version:tag10>";
+
 void app_main(void) {
+  __asm__ volatile("" : : "r"(version_tag));
   specter_mock_status_t status;
   specter_mock_status_collect(&status);
   status.telemetry_ready = specter_mock_telemetry_init();

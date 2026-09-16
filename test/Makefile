@@ -30,6 +30,8 @@ C_SOURCES  = $(shell find $(LOC_ROOT) -name *.c)
 CPP_SOURCES  = $(shell find $(LOC_ROOT) -name *.cpp)
 # Bootloader core
 C_SOURCES += $(shell find $(CORE_DIR) -name *.c ! -name startup_mailbox.c)
+# Use the public test-key set when exercising the complete core entry point.
+C_SOURCES += $(CMN_ROOT)/keys/test/pubkeys.c
 # CRC32
 C_SOURCES += $(shell find $(LIB_DIR)/crc32 -name *.c)
 # Crypto library

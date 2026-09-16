@@ -5,12 +5,14 @@
  * @copyright  Copyright 2020 Crypto Advance GmbH. All rights reserved.
  */
 
+#include "bl_syscalls.h"
+
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
+
 #include "bl_util.h"
-#include "bl_syscalls.h"
 
 /// Flags used with fnmatch() function to match file names
 #define FNMATCH_FLAGS (FNM_FILE_NAME | FNM_PERIOD)
@@ -42,6 +44,23 @@ uint8_t* flash_emu_buf = NULL;
 /// Size of currently allocated flash emulation buffer
 size_t flash_emu_size = 0U;
 
+static const char* payload_format = NULL;
+
+/// Counters for checking that initialization never enters an update
+/// transaction.
+unsigned blsys_test_erase_calls;
+unsigned blsys_test_write_calls;
+unsigned blsys_test_find_calls;
+unsigned blsys_test_media_calls;
+unsigned blsys_test_progress_calls;
+bool blsys_test_media_present = true;
+
+void blsys_test_set_payload_format(const char* format) {
+  payload_format = format;
+}
+
+const char* blsys_payload_format(void) { return payload_format; }
+
 bool blsys_init(void) {
   flash_emu_buf = (uint8_t*)malloc(flash_emu_size);
   if (!flash_emu_buf) {
@@ -54,6 +73,7 @@ bool blsys_init(void) {
 void blsys_deinit(void) {
   if (flash_emu_buf) {
     free(flash_emu_buf);
+    flash_emu_buf = NULL;
   }
 }
 
@@ -73,6 +93,7 @@ static bool check_flash_area(bl_addr_t addr, size_t size) {
 }
 
 bool blsys_flash_erase(bl_addr_t addr, size_t size) {
+  ++blsys_test_erase_calls;
   if (flash_emu_buf && check_flash_area(addr, size)) {
     size_t offset = addr - flash_emu_base;
     memset(flash_emu_buf + offset, 0xFFU, size);
@@ -91,11 +112,12 @@ bool blsys_flash_read(bl_addr_t addr, void* buf, size_t len) {
 }
 
 bool blsys_flash_write(bl_addr_t addr, const void* buf, size_t len) {
+  ++blsys_test_write_calls;
   if (flash_emu_buf && buf && check_flash_area(addr, len)) {
     size_t offset = addr - flash_emu_base;
     // Check if flash area is erased
-    for(size_t idx = offset; idx < offset + len; ++idx) {
-      if(flash_emu_buf[idx] != 0xFFU) {
+    for (size_t idx = offset; idx < offset + len; ++idx) {
+      if (flash_emu_buf[idx] != 0xFFU) {
         return false;
       }
     }
@@ -108,7 +130,8 @@ bool blsys_flash_write(bl_addr_t addr, const void* buf, size_t len) {
 uint32_t blsys_media_devices(void) { return 1U; }
 
 bool blsys_media_check(uint32_t device_idx) {
-  return (0U == device_idx) ? true : false;
+  ++blsys_test_media_calls;
+  return 0U == device_idx && blsys_test_media_present;
 }
 
 bool blsys_media_mount(uint32_t device_idx) {
@@ -119,6 +142,7 @@ void blsys_media_umount(void) {}
 
 const char* blsys_ffind_first(bl_ffind_ctx_t* ctx, const char* path,
                               const char* pattern) {
+  ++blsys_test_find_calls;
   if (ctx && path && pattern) {
     ctx->pattern = strdup(pattern);
     ctx->dir = opendir(('\0' == *path || bl_streq(path, "/")) ? "./" : path);
@@ -208,4 +232,6 @@ bl_alert_status_t blsys_alert(blsys_alert_type_t type, const char* caption,
 }
 
 void blsys_progress(const char* caption, const char* operation,
-                    uint32_t percent_x100) {}
+                    uint32_t percent_x100) {
+  ++blsys_test_progress_calls;
+}

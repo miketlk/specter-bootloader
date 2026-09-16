@@ -7,13 +7,15 @@
 
 /// Forces inclusion of private types
 #define BOOTLOADER_H_DEFINE_PRIVATE_TYPES
-#include <string.h>
-#include <stdarg.h>
-#include "crc32.h"
 #include "bootloader.h"
+
+#include <stdarg.h>
+#include <string.h>
+
+#include "bl_integrity_check.h"
 #include "bl_kats.h"
 #include "bl_signature.h"
-#include "bl_integrity_check.h"
+#include "crc32.h"
 
 /// Pattern used to search for upgrade files
 #define UPGRADE_FILES "specter_upgrade*.bin"
@@ -579,19 +581,36 @@ BL_STATIC_NO_TEST bool read_metadata(file_metadata_t* p_md, bl_file_t file) {
  * @param sect_size  size of the section if the flash memory
  * @return           true if section is compatible
  */
-static bool check_sect_compatibility(const bl_section_t* p_hdr,
-                                     bl_addr_t sect_base, uint32_t sect_size) {
+BL_STATIC_NO_TEST bool check_sect_compatibility(const bl_section_t* p_hdr,
+                                                bl_addr_t sect_base,
+                                                uint32_t sect_size) {
   if (p_hdr) {
     // Get necessary attributes from the header
     char platform[BL_ATTR_STR_MAX] = "";
     bl_uint_t base_addr = 0U;
-    if (blsect_get_attr_str(p_hdr, bl_attr_platform, platform,
-                            sizeof(platform)) &&
+    if (!blsect_get_attr_str(p_hdr, bl_attr_platform, platform,
+                             sizeof(platform)) ||
+        !bl_streq(platform, blsys_platform_id()) ||
+        !bl_icr_check_sect_size(sect_size, p_hdr->pl_size)) {
+      return false;
+    }
+
+    char format[BL_ATTR_STR_MAX] = "";
+    if (blsect_get_attr_str(p_hdr, bl_attr_payload_format, format,
+                            sizeof(format))) {
+      char target[BL_ATTR_STR_MAX] = "";
+      uint8_t digest[32];
+      const char* supported = blsys_payload_format();
+      return supported && bl_streq(format, supported) &&
+             blsect_get_attr_str(p_hdr, bl_attr_payload_target, target,
+                                 sizeof(target)) &&
+             bl_streq(target, p_hdr->name) &&
+             blsect_get_attr_bytes(p_hdr, bl_attr_payload_sha256, digest,
+                                   sizeof(digest));
+    }
+    if (!blsys_payload_format() &&
         blsect_get_attr_uint(p_hdr, bl_attr_base_addr, &base_addr)) {
-      // Check parameters and attributes
-      return bl_streq(platform, blsys_platform_id()) &&
-             base_addr == sect_base &&
-             bl_icr_check_sect_size(sect_size, p_hdr->pl_size);
+      return base_addr == sect_base;
     }
   }
   return false;
@@ -631,8 +650,9 @@ static bool check_compatibility(const file_metadata_t* p_md,
  * @param flags      flags passed to bootloader_run()
  * @return           result of version check
  */
-static version_check_res_t check_version(uint32_t new_ver, uint32_t curr_ver,
-                                         uint32_t flags) {
+BL_STATIC_NO_TEST version_check_res_t check_version(uint32_t new_ver,
+                                                    uint32_t curr_ver,
+                                                    uint32_t flags) {
   if (BL_VERSION_NA == new_ver || new_ver > BL_VERSION_MAX) {
     return version_invalid;
   } else if (0 == (flags & bl_flag_allow_rc_versions) &&
@@ -1041,19 +1061,31 @@ static bool create_icrs(const file_metadata_t* p_md, bl_addr_t bl_addr,
                         const flash_map_t* p_map) {
   if (p_md) {
     if (p_md->boot_section.loaded) {
+      uint8_t digest[32];
+      bool has_digest =
+          blsect_get_attr_bytes(&p_md->boot_section.header,
+                                bl_attr_payload_sha256, digest, sizeof(digest));
       bl_report_progress(stage_create_icr | substage_boot, 1U, 0U);
-      if (!bl_icr_create(get_inactive_bl_addr(bl_addr), p_map->bootloader_size,
-                         p_md->boot_section.header.pl_size,
-                         p_md->boot_section.header.pl_ver)) {
+      if (!blsys_flash_finalize(
+              get_inactive_bl_addr(bl_addr), p_map->bootloader_size,
+              p_md->boot_section.header.pl_size,
+              p_md->boot_section.header.pl_ver, has_digest ? digest : NULL,
+              has_digest ? sizeof(digest) : 0U)) {
         return false;
       }
       bl_report_progress(stage_create_icr | substage_boot, 1U, 1U);
     }
     if (p_md->main_section.loaded) {
+      uint8_t digest[32];
+      bool has_digest =
+          blsect_get_attr_bytes(&p_md->main_section.header,
+                                bl_attr_payload_sha256, digest, sizeof(digest));
       bl_report_progress(stage_create_icr | substage_main, 1U, 0U);
-      if (!bl_icr_create(p_map->firmware_base, p_map->firmware_size,
-                         p_md->main_section.header.pl_size,
-                         p_md->main_section.header.pl_ver)) {
+      if (!blsys_flash_finalize(p_map->firmware_base, p_map->firmware_size,
+                                p_md->main_section.header.pl_size,
+                                p_md->main_section.header.pl_ver,
+                                has_digest ? digest : NULL,
+                                has_digest ? sizeof(digest) : 0U)) {
         return false;
       }
       bl_report_progress(stage_create_icr | substage_main, 1U, 1U);
@@ -1432,6 +1464,20 @@ static bl_status_t bootloader_run_initialized(const bl_args_t* p_args,
   }
   if (!validate_pubkey_set(&bl_pubkey_set)) {
     return bl_status_err_pubkeys;
+  }
+
+  if (flags & bl_flag_check_only) {
+    // A trial must prove initialization without entering an update transaction
+    // that could invalidate its confirmed fallback. A missing card is normal.
+    if (!bl_run_kats()) {
+      return bl_status_err_internal;
+    }
+    blsys_progress("Bootloader", "Checking initialization", 0U);
+    uint32_t devices = blsys_media_devices();
+    for (uint32_t device = 0U; device < devices; ++device) {
+      (void)blsys_media_check(device);
+    }
+    return bl_status_normal_exit;
   }
 
 #ifdef READ_PROTECTION

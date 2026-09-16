@@ -2,6 +2,10 @@ set(mock_dir "${COMPONENT_DIR}")
 set(repo_root "${mock_dir}/../../..")
 set(platform_dir "${mock_dir}/..")
 
+set(SPECTER_MOCK_VERSION "${PROJECT_VER}")
+include("${mock_dir}/mock_version.cmake")
+specter_encode_mock_version("${SPECTER_MOCK_VERSION}"
+                            specter_mock_version_tag)
 if(NOT DEFINED SPECTER_MOCK_BLOAT_BYTES)
     set(SPECTER_MOCK_BLOAT_BYTES 0)
 endif()
@@ -73,4 +77,5 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     SPECTER_BOOT_B_OFFSET=${SPECTER_BOOT_B_OFFSET}
     SPECTER_MAIN_OFFSET=${SPECTER_MAIN_OFFSET}
     SPECTER_MAIN_PARTITION_SIZE=${SPECTER_MAIN_PARTITION_SIZE}
+    SPECTER_MOCK_VERSION_TAG=\"${specter_mock_version_tag}\"
     SPECTER_MOCK_BLOAT_BYTES=${SPECTER_MOCK_BLOAT_BYTES})

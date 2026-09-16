@@ -10,17 +10,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "esp32p4_boot_contract.h"
 #include "esp_partition.h"
 
-#define SPECTER_ESP32P4_TRAILER_SIZE 0x1000U
 #define SPECTER_ESP32P4_MEDIA_MOUNT_POINT "/sdcard"
-
-typedef enum specter_esp32p4_role {
-  specter_role_invalid = 0,
-  specter_role_boot_a = 1,
-  specter_role_boot_b = 2,
-  specter_role_main = 3,
-} specter_esp32p4_role_t;
 
 typedef struct specter_esp32p4_fixed_partition {
   const char* label;
@@ -65,8 +58,8 @@ bool specter_esp32p4_board_display_init(void);
 void specter_esp32p4_board_display_deinit(void);
 
 /// Returns the selected panel's RGB565 framebuffer and geometry.
-bool specter_esp32p4_board_framebuffer(uint16_t** framebuffer,
-                                      uint16_t* width, uint16_t* height);
+bool specter_esp32p4_board_framebuffer(uint16_t** framebuffer, uint16_t* width,
+                                       uint16_t* height);
 
 /// Controls the board-local backlight and panel output.
 bool specter_esp32p4_board_backlight(uint8_t percent);

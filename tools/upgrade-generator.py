@@ -8,6 +8,7 @@ from intelhex import IntelHex
 import click
 import core.signature as sig
 from core.blsection import *
+from core.espidf import EspIdfImageError, validate_esp32p4_app_image
 __author__ = "Mike Tolkachev <contact@miketolkachev.dev>"
 __copyright__ = "Copyright 2020 Crypto Advance GmbH. All rights reserved"
 __version__ = "1.0.0"
@@ -29,6 +30,18 @@ def cli():
     type=click.File('r'),
     help='Intel HEX file containing the Bootloader.',
     metavar='<file.hex>'
+)
+@click.option(
+    '--bootloader-bin',
+    type=click.File('rb'),
+    help='Canonical hash-appended ESP-IDF Bootloader application image.',
+    metavar='<file.bin>'
+)
+@click.option(
+    '--firmware-bin',
+    type=click.File('rb'),
+    help='Canonical hash-appended ESP-IDF Main Firmware application image.',
+    metavar='<file.bin>'
 )
 @click.option(
     '-f', '--firmware', 'firmware_hex',
@@ -54,10 +67,11 @@ def cli():
     type=click.File('wb'),
     metavar='<upgrade_file.bin>'
 )
-def generate(upgrade_file, bootloader_hex, firmware_hex, platform, key_pem):
-    """This command generates an upgrade file from given firmware files
-    in Intel HEX format. It is required to specify at least one firmware
-    file: Firmware or Bootloader.
+def generate(upgrade_file, bootloader_hex, firmware_hex, bootloader_bin,
+             firmware_bin, platform, key_pem):
+    """Generates an upgrade from Intel HEX or canonical ESP-IDF app images.
+
+    It is required to specify at least one Main Firmware or Bootloader input.
 
     In addition, if a private key is provided it is used to sign produced
     upgrade file. Private key should be in PEM container with or without
@@ -70,12 +84,23 @@ def generate(upgrade_file, bootloader_hex, firmware_hex, platform, key_pem):
 
     # Create payload sections from HEX files
     sections = []
+    if bootloader_hex and bootloader_bin:
+        raise click.ClickException("Specify only one Bootloader input format")
+    if firmware_hex and firmware_bin:
+        raise click.ClickException(
+            "Specify only one Main Firmware input format")
     if bootloader_hex:
         sections.append(create_payload_section(
             bootloader_hex, 'boot', platform))
+    elif bootloader_bin:
+        sections.append(create_esp_idf_payload_section(
+            bootloader_bin, 'boot', platform))
     if firmware_hex:
         sections.append(create_payload_section(
             firmware_hex, 'main', platform))
+    elif firmware_bin:
+        sections.append(create_esp_idf_payload_section(
+            firmware_bin, 'main', platform))
     if not len(sections):
         raise click.ClickException("No input file specified")
 
@@ -218,6 +243,30 @@ def create_payload_section(hex_file, section_name, platform):
     if len(pl_bytes) != exp_len:
         raise click.ClickException(f"Error while parsing '{hex_file.name}'")
     return PayloadSection(name=section_name, payload=pl_bytes, attributes=attr)
+
+
+def create_esp_idf_payload_section(bin_file, section_name, platform):
+    """Creates a signed section from a canonical ESP-IDF application image."""
+    if not platform:
+        raise click.ClickException("ESP-IDF payloads require --platform")
+    payload = bin_file.read()
+    try:
+        digest = validate_esp32p4_app_image(payload)
+    except EspIdfImageError as error:
+        raise click.ClickException(
+            f"Error while parsing canonical ESP-IDF image "
+            f"'{bin_file.name}': {error}") from error
+    if len(payload) > MAX_PAYLOAD_SIZE:
+        raise click.ClickException(
+            f"ESP-IDF image '{bin_file.name}' exceeds payload size limit")
+    attributes = {
+        'bl_attr_platform': platform,
+        'bl_attr_payload_format': 'esp-idf-app',
+        'bl_attr_payload_target': section_name,
+        'bl_attr_payload_sha256': digest,
+    }
+    return PayloadSection(name=section_name, payload=payload,
+                          attributes=attributes)
 
 
 def load_seckey(key_pem):

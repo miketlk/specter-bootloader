@@ -5,11 +5,11 @@
  * @copyright  Copyright 2020 Crypto Advance GmbH. All rights reserved.
  */
 
+#include "bl_section.h"
 #include "catch2/catch.hpp"
 #include "crc32.h"
-#include "progress_monitor.hpp"
 #include "flash_buf.hpp"
-#include "bl_section.h"
+#include "progress_monitor.hpp"
 
 /// Digital signature algorithm string: secp256k1-sha256
 #define SECP256K1_SHA256 "secp256k1-sha256"
@@ -20,6 +20,10 @@ bool validate_section_name(const char* str, size_t buf_size);
 bool validate_attributes(const uint8_t* attr_list, size_t buf_size);
 bool bytes_to_5bit(uint8_t* dst, size_t* p_dst_size, const uint8_t* src,
                    size_t src_size);
+bool check_sect_compatibility(const bl_section_t* p_hdr, bl_addr_t sect_base,
+                              uint32_t sect_size);
+void blsys_test_set_payload_format(const char* format);
+int check_version(uint32_t new_ver, uint32_t curr_ver, uint32_t flags);
 }
 
 /// Reference payload
@@ -181,6 +185,85 @@ static bool strput(char* dst, size_t dst_size, const char* str) {
     }
   }
   return false;
+}
+
+static void append_attr(bl_section_t* header, size_t* offset, bl_attr_t id,
+                        const void* value, size_t size) {
+  REQUIRE(header);
+  REQUIRE(offset);
+  REQUIRE(size <= UINT8_MAX);
+  REQUIRE(*offset + size + 2U <= sizeof(header->attr_list));
+  header->attr_list[(*offset)++] = (uint8_t)id;
+  header->attr_list[(*offset)++] = (uint8_t)size;
+  memcpy(&header->attr_list[*offset], value, size);
+  *offset += size;
+}
+
+static bl_section_t compatibility_header(const char* platform,
+                                         const char* format, const char* target,
+                                         size_t digest_size) {
+  bl_section_t header = {};
+  strcpy(header.name, "main");
+  header.pl_size = 64U;
+  size_t offset = 0U;
+  append_attr(&header, &offset, bl_attr_platform, platform, strlen(platform));
+  if (format) {
+    append_attr(&header, &offset, bl_attr_payload_format, format,
+                strlen(format));
+  }
+  if (target) {
+    append_attr(&header, &offset, bl_attr_payload_target, target,
+                strlen(target));
+  }
+  if (digest_size) {
+    uint8_t digest[32] = {};
+    REQUIRE(digest_size <= sizeof(digest));
+    append_attr(&header, &offset, bl_attr_payload_sha256, digest, digest_size);
+  }
+  return header;
+}
+
+TEST_CASE("Payload format compatibility") {
+  const uint32_t section_size = 4096U;
+  blsys_test_set_payload_format("esp-idf-app");
+
+  SECTION("canonical ESP-IDF attributes") {
+    bl_section_t header =
+        compatibility_header("unknown", "esp-idf-app", "main", BL_HASH_SIZE);
+    REQUIRE(check_sect_compatibility(&header, 0x220000U, section_size));
+  }
+  SECTION("wrong platform") {
+    bl_section_t header =
+        compatibility_header("wrong", "esp-idf-app", "main", BL_HASH_SIZE);
+    REQUIRE_FALSE(check_sect_compatibility(&header, 0x220000U, section_size));
+  }
+  SECTION("wrong role") {
+    bl_section_t header =
+        compatibility_header("unknown", "esp-idf-app", "boot", BL_HASH_SIZE);
+    REQUIRE_FALSE(check_sect_compatibility(&header, 0x220000U, section_size));
+  }
+  SECTION("missing exact digest") {
+    bl_section_t header =
+        compatibility_header("unknown", "esp-idf-app", "main", 0U);
+    REQUIRE_FALSE(check_sect_compatibility(&header, 0x220000U, section_size));
+  }
+  SECTION("legacy address is rejected by ESP-IDF platform") {
+    bl_section_t header = compatibility_header("unknown", NULL, NULL, 0U);
+    size_t offset = strlen("unknown") + 2U;
+    const uint32_t base = 0x220000U;
+    append_attr(&header, &offset, bl_attr_base_addr, &base, sizeof(base));
+    REQUIRE_FALSE(check_sect_compatibility(&header, base, section_size));
+  }
+
+  blsys_test_set_payload_format(NULL);
+}
+
+TEST_CASE("Upgrade version monotonicity") {
+  REQUIRE(check_version(100000399U, 100000299U, 0U) == 1);
+  REQUIRE(check_version(100000299U, 100000299U, 0U) == 0);
+  REQUIRE(check_version(100000099U, 100000299U, 0U) == 3);
+  REQUIRE(check_version(BL_VERSION_NA, 100000299U, 0U) == 4);
+  REQUIRE(check_version(100000301U, 100000299U, 0U) == 2);
 }
 
 TEST_CASE("Validate section name") {
@@ -637,7 +720,7 @@ TEST_CASE("Get integer attribute") {
 
 TEST_CASE("Get string attribute") {
   SECTION("from reference header") {
-    const char buf_size = strlen(SECP256K1_SHA256) + 1U;
+    constexpr size_t buf_size = sizeof(SECP256K1_SHA256);
     char buf[buf_size];
 
     REQUIRE(blsect_get_attr_str(&ref_header, bl_attr_algorithm, buf, buf_size));
@@ -678,6 +761,23 @@ TEST_CASE("Get string attribute") {
     hdr.attr_list[14] = '\0';
     REQUIRE_FALSE(blsect_get_attr_str(&hdr, (bl_attr_t)0xA3, buf, sizeof(buf)));
   }
+}
+
+TEST_CASE("Get exact byte attribute") {
+  bl_section_t hdr = {};
+  hdr.attr_list[0] = bl_attr_payload_sha256;
+  hdr.attr_list[1] = 4U;
+  hdr.attr_list[2] = 0x12U;
+  hdr.attr_list[3] = 0x34U;
+  hdr.attr_list[4] = 0x56U;
+  hdr.attr_list[5] = 0x78U;
+  uint8_t digest[4] = {};
+
+  REQUIRE(blsect_get_attr_bytes(&hdr, bl_attr_payload_sha256, digest,
+                                sizeof(digest)));
+  REQUIRE(0 == memcmp(digest, "\x12\x34\x56\x78", sizeof(digest)));
+  REQUIRE_FALSE(
+      blsect_get_attr_bytes(&hdr, bl_attr_payload_sha256, digest, 3U));
 }
 
 TEST_CASE("Get version string") {

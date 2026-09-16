@@ -176,6 +176,20 @@ bool blsys_flash_map_get_items(int items, ...) {
   return valid;
 }
 
+const char* blsys_payload_format(void) { return "esp-idf-app"; }
+
+bool blsys_flash_finalize(bl_addr_t address, uint32_t section_size,
+                          uint32_t image_size, uint32_t image_version,
+                          const uint8_t* expected_sha256,
+                          size_t expected_sha256_size) {
+  specter_esp32p4_role_t role = specter_esp32p4_role_for_base(address);
+  const esp_partition_t* partition = specter_esp32p4_partition(role);
+  return partition && partition->size == section_size && expected_sha256 &&
+         expected_sha256_size == 32U &&
+         specter_esp32p4_approval_create_authorized(
+             role, image_size, image_version, expected_sha256);
+}
+
 bool blsys_flash_erase(bl_addr_t address, size_t size) {
   size_t offset = 0;
   specter_esp32p4_role_t role = specter_role_invalid;

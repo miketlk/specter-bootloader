@@ -48,6 +48,9 @@ _attributes = {
     'bl_attr_base_addr': (2, int, "0x{:x}"),
     'bl_attr_entry_point': (3, int, "0x{:x}"),
     'bl_attr_platform': (4, str, "'{}'"),
+    'bl_attr_payload_format': (5, str, "'{}'"),
+    'bl_attr_payload_target': (6, str, "'{}'"),
+    'bl_attr_payload_sha256': (7, bytes, "{}"),
 }
 # Reverse lookup by attribute code
 _attribute_names = {v[0]: k for k, v in _attributes.items()}
@@ -221,6 +224,8 @@ class _bl_section_t(LittleEndianStructure):
                 if len(value) > BL_ATTR_STR_MAX:
                     raise ValueError("Attribute string size exceeded")
                 data = list(value.encode('ascii'))
+            elif isinstance(value, bytes):
+                data = list(value)
             else:
                 data = list(value)
             if len(data) > 255:

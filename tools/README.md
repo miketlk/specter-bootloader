@@ -74,15 +74,35 @@ Upgrade generator supports three commands:
 
 To get full usage instructions run `upgrade-generator.py <command> --help`.
 
+ESP32-P4 `.bin` inputs are decoded with the esptool version installed by the
+pinned ESP-IDF checkout. Activate that environment before generating an ESP32
+upgrade or approval trailer:
+
+```sh
+. ./third_party/esp-idf/export.sh
+. .venv/bin/activate
+```
+
+Activate the tools virtual environment after ESP-IDF so the packaging tools
+retain their normal Python dependencies while locating the pinned ESP-IDF
+Python environment for image validation.
+
+The tools reject images with malformed segments or load ranges, a bad ESP
+checksum, a missing application descriptor, the wrong chip ID, trailing bytes,
+or a missing/incorrect appended SHA-256 before producing signable output.
+Address checks use the pinned ESP-IDF loader's separate flash, PSRAM, RAM,
+RTC and SPM ranges, excluding ROM and gaps. Padding cannot supply an entry
+point. These host checks do not replace Root Loader's verification, including
+checks for overlap with its own stack and linked sections.
+
 ### **gen** command
 
 ```console
 $ upgrade-generator.py gen --help
 Usage: upgrade-generator.py gen [OPTIONS] <upgrade_file.bin>
 
-  This command generates an upgrade file from given firmware files in Intel
-  HEX format. It is required to specify at least one firmware file: Firmware
-  or Bootloader.
+  Generates an upgrade from Intel HEX or canonical ESP-IDF app images. It is
+  required to specify at least one Main Firmware or Bootloader input.
 
   In addition, if a private key is provided it is used to sign produced
   upgrade file. Private key should be in PEM container with or without
@@ -90,6 +110,10 @@ Usage: upgrade-generator.py gen [OPTIONS] <upgrade_file.bin>
 
 Options:
   -b, --bootloader <file.hex>   Intel HEX file containing the Bootloader.
+  --bootloader-bin <file.bin>   Canonical hash-appended ESP-IDF Bootloader
+                                application image.
+  --firmware-bin <file.bin>     Canonical hash-appended ESP-IDF Main Firmware
+                                application image.
   -f, --firmware <file.hex>     Intel HEX file containing the Main Firmware.
   -k, --private-key <file.pem>  Private key in PEM container.
   -p, --platform <platform>     Platform identifier, i.e. stm32f469disco.
@@ -165,6 +189,16 @@ Options:
 To program a "clean" device a complete firmware image needs to be created, including at least the Start-up code and one copy of the Bootloader. The Main Firmware can be added-up as well to make the device fully operating right after programming.
 
 > IMPORTANT: Initial firmware is not intended for distribution as it does not use signature verification!
+
+For ESP32-P4 provisioning, the same tool can create the 4 KiB approval trailer
+for a canonical application image. A provisioned boot role normally uses
+`--confirmed`; Main Firmware has no boot-confirmation journal:
+
+```sh
+make-initial-firmware.py --esp32-app bootloader.bin \
+  --esp32-platform esp32-p4-wifi6-touch-lcd-4p3 \
+  --esp32-role boot_a --sequence 1 --confirmed boot_a.trailer
+```
 
 The recommended way to create an initial firmware is by the help of `make-initial-firmware.py` tool. Usage instructions can be obtained by running it with `-help` option:
 

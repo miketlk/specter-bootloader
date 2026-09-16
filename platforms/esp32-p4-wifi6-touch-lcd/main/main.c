@@ -11,7 +11,12 @@
 #include "bootloader.h"
 #include "crc32.h"
 #include "esp32p4_platform.h"
+#include "esp32p4_reset.h"
+#include "esp32p4_trailer.h"
 #include "esp_ota_ops.h"
+#include "esp_system.h"
+
+#define SPECTER_ROOT_LOADER_VERSION 100000099U
 
 static const char version_tag[] BL_ATTRS((used)) =
     "<version:tag10>0100000299</version:tag10>";
@@ -31,13 +36,36 @@ void app_main(void) {
         "Specter Bootloader is not running from boot_a or boot_b");
   }
 
+  specter_esp32p4_role_t running_role =
+      running->address == SPECTER_BOOT_A_OFFSET ? specter_role_boot_a
+                                                : specter_role_boot_b;
+  if (!blsys_init()) {
+    blsys_fatal_error("Specter Bootloader initialization failed");
+  }
+  specter_approval_record_t running_approval;
+  if (!specter_esp32p4_approval_read(running_role, &running_approval, true)) {
+    blsys_fatal_error("Running Specter Bootloader is not approved");
+  }
+  specter_boot_journal_state_t running_state =
+      specter_esp32p4_journal_state(running_role, running_approval.sequence);
+  bool running_trial = running_state == specter_journal_attempted;
+  if (!running_trial && running_state != specter_journal_confirmed) {
+    blsys_fatal_error("Specter Bootloader trial state is invalid");
+  }
+  blsys_deinit();
+
   bl_args_t args;
   memset(&args, 0, sizeof(args));
   args.loaded_from = running->address;
-  args.startup_version = 1U;
+  args.startup_version = SPECTER_ROOT_LOADER_VERSION;
   args.struct_crc = crc32_fast(&args, offsetof(bl_args_t, struct_crc), 0U);
 
   uint32_t flags = 0U;
+  if (running_trial) {
+    // Root Loader must durably confirm this copy before it can update the
+    // inactive slot, which still holds the only confirmed fallback.
+    flags |= bl_flag_check_only;
+  }
   if (bl_version_is_rc(bl_decode_version_tag(version_tag))) {
     flags |= bl_flag_allow_rc_versions;
   }
@@ -45,6 +73,28 @@ void app_main(void) {
   if (bootloader_has_error(status)) {
     blsys_init();
     blsys_fatal_error(bootloader_status_text(status));
+  }
+  if (running_trial) {
+    if (!blsys_init()) {
+      blsys_fatal_error("Specter Bootloader initialization failed");
+    }
+    if (!specter_esp32p4_reset_request_write(specter_rtc_confirm_bootloader,
+                                             running_role,
+                                             running_approval.sequence, 0U)) {
+      blsys_fatal_error("Unable to request Bootloader confirmation");
+    }
+    esp_restart();
+  }
+
+  specter_esp32p4_role_t inactive_role = running_role == specter_role_boot_a
+                                             ? specter_role_boot_b
+                                             : specter_role_boot_a;
+  specter_approval_record_t inactive_approval;
+  if (specter_esp32p4_approval_read(inactive_role, &inactive_approval, true) &&
+      inactive_approval.semantic_version > running_approval.semantic_version &&
+      specter_esp32p4_journal_state(
+          inactive_role, inactive_approval.sequence) == specter_journal_none) {
+    esp_restart();
   }
 
   bl_addr_t main_address = 0U;

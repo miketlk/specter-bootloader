@@ -1,0 +1,1079 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "abi_revision": {
+          "const": 2
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "python_floor": {
+          "type": "string"
+        },
+        "backend_provenance": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "version",
+        "abi_revision",
+        "policy_revision",
+        "python_floor",
+        "backend_provenance"
+      ],
+      "additionalProperties": true
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "findings",
+        "partial",
+        "error"
+      ]
+    },
+    "input": {
+      "type": "object"
+    },
+    "expectations": {
+      "type": "object"
+    },
+    "coverage": {
+      "type": "object"
+    },
+    "partition_table": {
+      "type": "object"
+    },
+    "regions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/region"
+      }
+    },
+    "boot_analysis": {
+      "type": "object"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "validation": {
+          "enum": [
+            "pass",
+            "fail",
+            "incomplete"
+          ]
+        },
+        "finding_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "validation",
+        "finding_count"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "tool",
+    "status",
+    "input",
+    "expectations",
+    "coverage",
+    "partition_table",
+    "regions",
+    "boot_analysis",
+    "findings",
+    "summary"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:specter:flash-inspect:report:1",
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+$"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "region_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offset": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "region_id",
+        "offset",
+        "message",
+        "details"
+      ],
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown",
+            "not_applicable",
+            "unsupported"
+          ]
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "code"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "not": {
+                  "const": "pass"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "region": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "reserved",
+            "root",
+            "partition_table",
+            "partition",
+            "recovery_candidate",
+            "unallocated"
+          ]
+        },
+        "role": {
+          "enum": [
+            null,
+            1,
+            2,
+            3
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "geometry_source": {
+          "enum": [
+            "fixed",
+            "observed_table",
+            "expected_layout",
+            "derived"
+          ]
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "complete",
+                "partial",
+                "absent"
+              ]
+            },
+            "covered_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "status",
+            "covered_bytes"
+          ],
+          "additionalProperties": false
+        },
+        "population": {
+          "enum": [
+            "erased",
+            "non_erased",
+            "unknown"
+          ]
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/image"
+            }
+          ]
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/approval"
+            }
+          ]
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sector"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "sectors": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/sector"
+                  }
+                }
+              },
+              "required": [
+                "sectors"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "nvs": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/nvs"
+            }
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/check"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "role",
+        "offset",
+        "size",
+        "geometry_source",
+        "coverage",
+        "population",
+        "image",
+        "approval",
+        "journal",
+        "nvs",
+        "checks"
+      ],
+      "additionalProperties": true
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "unknown",
+            "erased",
+            "valid",
+            "invalid"
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "load_address": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "index",
+              "offset",
+              "load_address",
+              "length"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/version"
+              },
+              {
+                "$ref": "#/$defs/malformed_version"
+              }
+            ]
+          }
+        },
+        "descriptor": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "canonical_length": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "appended_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "checks",
+        "segments",
+        "versions",
+        "descriptor",
+        "canonical_length",
+        "appended_sha256"
+      ],
+      "additionalProperties": true
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "unknown",
+            "erased",
+            "valid",
+            "malformed",
+            "unsupported"
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "project_checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "offset",
+        "state",
+        "checks",
+        "project_checks"
+      ],
+      "additionalProperties": true
+    },
+    "range": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "offset",
+        "size"
+      ],
+      "additionalProperties": true
+    },
+    "version": {
+      "type": "object",
+      "properties": {
+        "raw": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tag": {
+          "type": "string"
+        },
+        "display": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "raw",
+        "tag",
+        "display",
+        "valid"
+      ],
+      "additionalProperties": true
+    },
+    "partition": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "type": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "subtype": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type_name": {
+          "type": "string"
+        },
+        "subtype_name": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "flags": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "label",
+        "type",
+        "subtype",
+        "type_name",
+        "subtype_name",
+        "offset",
+        "size",
+        "flags"
+      ],
+      "additionalProperties": true
+    },
+    "journal_record": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "magic": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state_name": {
+          "enum": [
+            "attempted",
+            "confirmed",
+            "unknown"
+          ]
+        },
+        "matching_sequence": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ignored_by_firmware": {
+          "type": "boolean"
+        },
+        "validation": {
+          "$ref": "#/$defs/check"
+        },
+        "padding_canonical": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "slot",
+        "offset",
+        "magic",
+        "revision",
+        "sequence",
+        "state",
+        "state_name",
+        "matching_sequence",
+        "ignored_by_firmware",
+        "validation",
+        "padding_canonical"
+      ],
+      "additionalProperties": false
+    },
+    "sector": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/journal_record"
+          }
+        },
+        "effective_state": {
+          "enum": [
+            "none",
+            "attempted",
+            "confirmed",
+            "unknown"
+          ]
+        },
+        "traversal_stop": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "free_capacity": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "exhausted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "append_available": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "role",
+        "offset",
+        "records",
+        "effective_state",
+        "traversal_stop",
+        "free_capacity",
+        "exhausted",
+        "checks",
+        "append_available"
+      ],
+      "additionalProperties": false
+    },
+    "nvs_value": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "known",
+            "absent",
+            "unknown",
+            "ambiguous"
+          ]
+        },
+        "value": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "nvs": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "namespaces": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "values": {
+          "type": "object",
+          "properties": {
+            "approval_seq": {
+              "$ref": "#/$defs/nvs_value"
+            },
+            "floor_boot": {
+              "$ref": "#/$defs/nvs_value"
+            },
+            "floor_main": {
+              "$ref": "#/$defs/nvs_value"
+            }
+          },
+          "required": [
+            "approval_seq",
+            "floor_boot",
+            "floor_main"
+          ],
+          "additionalProperties": false
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/check"
+          }
+        }
+      },
+      "required": [
+        "backend",
+        "pages",
+        "records",
+        "namespaces",
+        "values",
+        "checks"
+      ],
+      "additionalProperties": true
+    },
+    "malformed_version": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {
+          "type": "null"
+        },
+        "tag": {
+          "type": "null"
+        },
+        "display": {
+          "type": "null"
+        },
+        "valid": {
+          "const": false
+        }
+      },
+      "required": [
+        "offset",
+        "raw",
+        "tag",
+        "display",
+        "valid"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "not": {
+              "const": "error"
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "enum": [
+                  "bin",
+                  "hex",
+                  "intelhex",
+                  "xxd",
+                  "hexdump"
+                ]
+              },
+              "source_size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "source_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "base_offset": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "address_model": {
+                "const": "sparse_absolute"
+              },
+              "ranges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/range"
+                }
+              },
+              "content_mode": {
+                "enum": [
+                  "auto",
+                  "plaintext",
+                  "ciphertext"
+                ]
+              }
+            },
+            "required": [
+              "format",
+              "source_size",
+              "source_sha256",
+              "base_offset",
+              "address_model",
+              "ranges",
+              "content_mode"
+            ],
+            "additionalProperties": true
+          },
+          "expectations": {
+            "type": "object",
+            "properties": {
+              "board": {
+                "enum": [
+                  "auto",
+                  "lcd-4p3",
+                  "lcd-5"
+                ]
+              },
+              "inferred_board": {
+                "enum": [
+                  null,
+                  "lcd-4p3",
+                  "lcd-5"
+                ]
+              },
+              "layout_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "layout_source": {
+                "enum": [
+                  "repository",
+                  "override"
+                ]
+              },
+              "partition_table_offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "logical_capacity": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "board",
+              "inferred_board",
+              "layout_sha256",
+              "layout_source",
+              "partition_table_offset",
+              "logical_capacity"
+            ],
+            "additionalProperties": true
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "ranges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/range"
+                }
+              },
+              "missing_expected_ranges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/range"
+                }
+              },
+              "observed_extent": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "ranges",
+              "missing_expected_ranges",
+              "observed_extent"
+            ],
+            "additionalProperties": false
+          },
+          "partition_table": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/partition"
+                }
+              },
+              "checks": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/check"
+                }
+              },
+              "missing_expected": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "backend": {
+                "type": "string"
+              },
+              "valid": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "offset",
+              "entries",
+              "checks",
+              "missing_expected",
+              "backend",
+              "valid"
+            ],
+            "additionalProperties": true
+          },
+          "boot_analysis": {
+            "type": "object",
+            "properties": {
+              "model_revision": {
+                "type": "string"
+              },
+              "selection": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "unknown",
+                  "conditional_selection",
+                  "no_loadable_candidate"
+                ]
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "main": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "assumptions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "model_revision",
+              "selection",
+              "state",
+              "candidates",
+              "main",
+              "assumptions",
+              "limitations"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  ]
+}

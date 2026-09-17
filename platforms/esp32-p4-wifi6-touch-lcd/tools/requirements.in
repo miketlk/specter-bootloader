@@ -1,0 +1,9 @@
+# Python 3.10+. Runtime image backend matches the pinned IDF 5.5 environment.
+esptool==4.12.0
+pytest==8.4.2
+jsonschema==4.25.1
+
+# Match IDF tooling and keep the Python 3.10 floor.
+cryptography==44.0.3
+# Offline fixture generation through the pinned IDF launcher.
+esp-idf-nvs-partition-gen==0.1.9

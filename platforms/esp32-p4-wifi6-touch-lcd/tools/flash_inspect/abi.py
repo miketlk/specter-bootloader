@@ -1,0 +1,17 @@
+"""Persistent ABI revision 2; checked against the C contract by host tests."""
+
+TRAILER_SIZE = 4096
+APPROVAL_SIZE = 128
+APPROVAL_CRC_OFFSET = 112
+APPROVAL_MAGIC = b"SPAPRV2\0"
+APPROVAL_REVISION = 2
+APPROVED = 0x41505052
+JOURNAL_SECTOR_SIZE = 4096
+JOURNAL_SIZE = 64
+JOURNAL_CRC_OFFSET = 32
+JOURNAL_MAGIC = 0x4A525053
+JOURNAL_REVISION = 2
+ATTEMPTED = 0x4154544D
+CONFIRMED = 0x434F4E46
+ROLES = {"boot_a": 1, "boot_b": 2, "main": 3}
+PLATFORMS = {b: "esp32-p4-wifi6-touch-" + b for b in ("lcd-4p3", "lcd-5")}

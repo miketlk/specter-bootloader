@@ -8,6 +8,7 @@ import zlib
 import sys
 from .signature import *
 from .signature import _sha256
+from .versiontag import read_version_tag
 from bech32.segwit_addr import bech32_encode
 from bitstring import ConstBitStream
 
@@ -141,19 +142,9 @@ def find_payload_version(firmware):
     if idx2 >= 0:
         raise ValueError("Payload contains more than one version tag")
 
-    # Skip version tag and decode digits
-    idx += len(VERSION_TAG)
-    if len(firmware) < idx + VERSION_DIGITS + len(VERSION_TAG_CLOSE):
-        raise ValueError("Corrupted varsion tag in payload")
-    version_num = int(firmware[idx: (idx + VERSION_DIGITS)])
+    version_num = read_version_tag(firmware, idx)
     if not is_version_valid(version_num, allow_na=False):
         raise ValueError("Version number is out of range")
-
-    # Check that closing tag is present
-    idx += VERSION_DIGITS
-    closing_tag = firmware[idx: (idx + len(VERSION_TAG_CLOSE))]
-    if closing_tag != VERSION_TAG_CLOSE:
-        raise ValueError("Corrupted varsion tag in payload")
 
     # Return version number
     return version_num

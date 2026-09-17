@@ -8,6 +8,7 @@
   - [JSON output and exit codes](#json-output-and-exit-codes)
   - [Boot analysis](#boot-analysis)
 - [Tests](#tests)
+- [Flash readout](#flash-readout)
 
 This directory contains tools specific to the ESP32-P4 port. For upgrade
 creation, signing, initial firmware generation and SD uploads, see the shared
@@ -240,3 +241,76 @@ builds. They cover input normalization, sparse coverage, decoders, JSON Schema,
 CLI exits and conditional policy. A host C compiler enables the ABI/CRC and
 firmware-policy differential checks; `xxd` enables comparisons with real command
 output. Tests requiring either executable are skipped when it is unavailable.
+
+## Flash readout
+
+[flash-readout.py](flash-readout.py) acquires the entire detected ESP32-P4 flash
+as a raw binary accepted by the inspector. It requires Python 3.10+, a POSIX
+host, and the Python environment activated by this repository's pinned ESP-IDF:
+
+```sh
+. ./third_party/esp-idf/export.sh
+python platforms/esp32-p4-wifi6-touch-lcd/tools/flash-readout.py build/flash.bin \
+  --port /dev/cu.YOUR_BOARD --pretty
+python platforms/esp32-p4-wifi6-touch-lcd/tools/flash-inspect.py build/flash.bin \
+  --format bin --board lcd-4p3 --pretty
+```
+
+Select the board's USB-to-UART serial port explicitly. Acquisition resets the
+board into its download loader and uploads esptool's RAM stub. It leaves the
+board in the loader, preventing application writes between chunks. Reset the
+board manually when ready to run firmware again. No flash programming, erase,
+unlock, or eFuse commands are issued. Download/read restrictions are not bypassed.
+
+The default serial rate is **6,000,000 baud**, with `--baud 4000000` available
+for other adapters. Baud is not payload throughput; effective speed depends on
+the adapter, host and esptool. The default `--chunk-size 1048576` minimizes
+connection overhead. Sizes from 65536 through 1048576 bytes, in multiples of
+65536, are accepted. Capacity is detected rather than inferred from partitions.
+Identification and chunk reads have a `--timeout` of 60 seconds; the whole-flash
+checksum has a separate `--verify-timeout` of 300 seconds. Each operation allows
+`--retries 2` additional attempts.
+Rates do not silently fall back; select a lower `--baud` if retries fail.
+
+Completed chunks, their SHA-256 hashes, board identity, ESP-IDF revision and an
+esptool log are retained in `OUTPUT.chunks/` (override with `--chunks-dir`). After
+an interrupted or failed acquisition, repeat the command with `--resume`:
+
+```sh
+python platforms/esp32-p4-wifi6-touch-lcd/tools/flash-readout.py build/flash.bin \
+  --port /dev/cu.YOUR_BOARD --resume
+```
+
+Resume requires matching device identity, IDF revision and chunk size. Missing
+or corrupt chunks are reread. Esptool checks each transferred chunk's digest;
+the wrapper also verifies the complete assembled image against device flash
+before publishing it. If firmware or flash changed between runs, that final
+verification fails; start a fresh acquisition in a new chunk directory.
+
+To assemble a complete saved acquisition without connecting a board:
+
+```sh
+python platforms/esp32-p4-wifi6-touch-lcd/tools/flash-readout.py build/reassembled.bin \
+  --chunks-dir build/flash.bin.chunks --assemble-only
+```
+
+Offline assembly requires every chunk and verifies their saved SHA-256 hashes.
+Its report sets `device_verified` to `false`; it does not check current hardware.
+Existing output files are never overwritten. A `.partial` left by a forcibly
+killed process is also protected; choose a new output path with the existing
+`--chunks-dir` to recover. Do not run another tool against the same board during
+acquisition. A lock prevents concurrent use of the same chunk directory.
+
+Except for `--help`, stdout contains one JSON object with `schema_version: 1`,
+`status`, and either an `error` or the output path, size, SHA-256, device identity,
+chunk directory, `format: "bin"`, `base_offset: 0`, and `device_verified`.
+Progress goes to stderr; detailed esptool output stays in `esptool.log`.
+Exit codes are 0 for success, 2 for an invocation/acquisition/assembly error,
+and 130 for interruption. This acquisition summary is separate from the
+inspector's analysis report; the compatible artifact is the raw `.bin` file.
+
+Run acquisition tests without hardware:
+
+```sh
+python -m pytest -q platforms/esp32-p4-wifi6-touch-lcd/tools/test/flash_readout_test.py
+```

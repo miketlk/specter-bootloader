@@ -195,6 +195,25 @@ known erased slot (`true`), proves the sector full (`false`), or encounters
 missing evidence first (`null`). Total `free_capacity` remains `null` for an
 incomplete sector, even when an append slot is known.
 
+Policy model `root-normal-reset-v3` assumes Root supports confirmed fallback
+after a trial-marker append failure. A full newer trial journal therefore
+selects the independently approved, confirmed fallback while retaining the
+`JOURNAL_FULL` finding and the trial's capacity disqualification. If none exists,
+Root resets without executing a trial. It never erases history to make room or
+tries another unconfirmed image after an append failure. Matching confirmation
+remains valid even in a full journal. Partial or uncertain writes are rescanned
+on the next boot: a valid attempted record prevents another trial; an incomplete
+record consumes space but does not establish an attempt or confirmation.
+The inspector does not identify Root's implementation from its binary; older
+Root firmware can still reset instead of using the modeled fallback. Runtime
+write success remains conditional even when an erased slot is visible.
+Full recovery also requires the Bootloader application to proceed to Main after
+normal core return, even when a newer inactive image remains unattempted.
+Successful upgrades wait at the completion alert for a physical reset; they do
+not return to application-side reselection. Older applications can restart
+repeatedly after Root selects them as fallback. Boot analysis predicts
+Root's selection, not successful application initialization or Main handoff.
+
 Main Firmware is reported separately: it is not a normal-reset fallback and
 requires a valid matching RTC handoff request. Missing Main evidence affects
 strict completeness but does not block independently determined normal selection.

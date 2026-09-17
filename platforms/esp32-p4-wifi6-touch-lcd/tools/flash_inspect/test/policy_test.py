@@ -39,7 +39,7 @@ def test_selection(av, bv, aseq, bseq, astate, bstate, expected):
     assert report["main"]["requires_matching_rtc_request"]
 
 
-def test_full_newer_trial_does_not_invent_fallback():
+def test_full_newer_trial_uses_confirmed_fallback():
     report = analyze(
         [
             candidate(1, 1, 1, "confirmed"),
@@ -48,8 +48,11 @@ def test_full_newer_trial_does_not_invent_fallback():
         ],
         {"checks": {"root_policy": {"status": "pass"}}},
     )
-    assert report["state"] == "no_loadable_candidate"
-    assert report["selection"] is None
+    assert report["state"] == "conditional_selection"
+    assert report["selection"] == "boot_1"
+    assert report["candidates"][1]["disqualification_codes"] == [
+        "TRIAL_MARKER_CAPACITY_UNAVAILABLE"
+    ]
 
 
 @pytest.mark.parametrize("status", ["unknown", "fail"])

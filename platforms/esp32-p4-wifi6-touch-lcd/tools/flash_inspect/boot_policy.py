@@ -3,7 +3,7 @@
 
 def analyze(regions, table):
     result = {
-        "model_revision": "root-normal-reset-v2",
+        "model_revision": "root-normal-reset-v3",
         "selection": None,
         "state": "unknown",
         "candidates": [],
@@ -11,6 +11,7 @@ def analyze(regions, table):
         "assumptions": [
             "Normal reset without a valid retained RTC request",
             "Expected geometry represents the compiled Root layout",
+            "Root supports confirmed fallback after trial-marker append failure",
         ],
         "limitations": [
             "RTC state and eFuses are unavailable",
@@ -83,8 +84,8 @@ def analyze(regions, table):
         key=key,
         default=None,
     )
-    # Firmware chooses before appending the marker; a full newer trial does not
-    # silently fall back to an older confirmed image after append failure.
+    # Root attempts the newest trial once, then uses only a confirmed fallback
+    # if its marker cannot be appended. It never tries a second trial.
     trials = [
         c
         for c in candidates
@@ -100,6 +101,11 @@ def analyze(regions, table):
     ):
         result["reason"] = "TRIAL_MARKER_CAPACITY_UNKNOWN"
         return result
+    if (
+        trial
+        and "TRIAL_MARKER_CAPACITY_UNAVAILABLE" in trial["disqualification_codes"]
+    ):
+        selected = confirmed
     if selected and selected["eligible"]:
         result["selection"] = selected["region_id"]
         result["state"] = "conditional_selection"

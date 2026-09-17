@@ -197,7 +197,8 @@ static bool consume_request(specter_rtc_request_t* request) {
              crc32_fast(request, offsetof(specter_rtc_request_t, crc), 0U);
 }
 
-static int choose_bootloader(const specter_root_state_t state[3]) {
+static int choose_bootloader(const specter_root_state_t state[3],
+                             bool allow_trial) {
   int confirmed = -1;
   for (int i = 0; i < 2; ++i) {
     if (state[i].approved && state[i].journal == specter_journal_confirmed &&
@@ -209,6 +210,10 @@ static int choose_bootloader(const specter_root_state_t state[3]) {
           state[i].approval.sequence > state[confirmed].approval.sequence))) {
       confirmed = i;
     }
+  }
+
+  if (!allow_trial) {
+    return confirmed;
   }
 
   int trial = -1;
@@ -226,6 +231,32 @@ static int choose_bootloader(const specter_root_state_t state[3]) {
     }
   }
   return trial >= 0 ? trial : confirmed;
+}
+
+static int prepare_bootloader(const specter_root_state_t state[3]) {
+  int selected = choose_bootloader(state, true);
+  if (selected < 0) {
+    ESP_LOGE(TAG, "no approved healthy Specter Bootloader");
+    return -1;
+  }
+  if (state[selected].journal == specter_journal_none) {
+    if (!specter_root_journal_append(boot_allowlist[selected].role,
+                                     state[selected].approval.sequence,
+                                     specter_journal_attempted)) {
+      ESP_LOGE(TAG, "cannot mark bootloader trial attempted");
+      // The append may have partially or fully committed despite an I/O error.
+      // Exclude all trials for this boot; the next boot rescans durable
+      // records.
+      selected = choose_bootloader(state, false);
+      if (selected >= 0) {
+        ESP_LOGI(TAG, "fallback %s", boot_allowlist[selected].label);
+      }
+      return selected;
+    }
+    ESP_LOGI(TAG, "trial %s sequence %" PRIu32, boot_allowlist[selected].label,
+             state[selected].approval.sequence);
+  }
+  return selected;
 }
 
 static void __attribute__((noreturn)) load_exact_partition(
@@ -295,20 +326,9 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
     load_exact_partition(&boot_allowlist[2], positions[2]);
   }
 
-  int selected = choose_bootloader(state);
+  int selected = prepare_bootloader(state);
   if (selected < 0) {
-    ESP_LOGE(TAG, "no approved healthy Specter Bootloader");
     bootloader_reset();
-  }
-  if (state[selected].journal == specter_journal_none) {
-    if (!specter_root_journal_append(boot_allowlist[selected].role,
-                                     state[selected].approval.sequence,
-                                     specter_journal_attempted)) {
-      ESP_LOGE(TAG, "cannot mark bootloader trial attempted");
-      bootloader_reset();
-    }
-    ESP_LOGI(TAG, "trial %s sequence %" PRIu32, boot_allowlist[selected].label,
-             state[selected].approval.sequence);
   }
   load_exact_partition(&boot_allowlist[selected], positions[selected]);
 }

@@ -11,10 +11,16 @@
 #include "esp32p4_platform.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #include "sdmmc_cmd.h"
+
+#if CONFIG_FATFS_LFN_NONE
+#error "microSD upgrade discovery requires FatFs long filenames"
+#endif
 
 static const char* TAG = "specter-media";
 static sdmmc_card_t* mounted_card;
+static sd_pwr_ctrl_handle_t media_power;
 
 static bool wildcard_match(const char* pattern, const char* text) {
   if (!pattern || !text) {
@@ -70,11 +76,21 @@ bool blsys_media_mount(uint32_t device_idx) {
   slot.d3 = GPIO_NUM_42;
   slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-  esp_err_t result =
-      esp_vfs_fat_sdmmc_mount(SPECTER_ESP32P4_MEDIA_MOUNT_POINT, &host, &slot,
-                              &mount_config, &mounted_card);
+  // Both Waveshare boards use LDO4 to supply the SDMMC IO domain.
+  sd_pwr_ctrl_ldo_config_t power_config = {.ldo_chan_id = 4};
+  esp_err_t result = sd_pwr_ctrl_new_on_chip_ldo(&power_config, &media_power);
+  if (ESP_OK != result) {
+    ESP_LOGW(TAG, "microSD IO power initialization failed: %s",
+             esp_err_to_name(result));
+    return false;
+  }
+  host.pwr_ctrl_handle = media_power;
+  result = esp_vfs_fat_sdmmc_mount(SPECTER_ESP32P4_MEDIA_MOUNT_POINT, &host,
+                                   &slot, &mount_config, &mounted_card);
   if (ESP_OK != result) {
     mounted_card = NULL;
+    sd_pwr_ctrl_del_on_chip_ldo(media_power);
+    media_power = NULL;
     ESP_LOGW(TAG, "microSD mount probe failed: %s", esp_err_to_name(result));
     return false;
   }
@@ -85,6 +101,8 @@ void blsys_media_umount(void) {
   if (mounted_card) {
     esp_vfs_fat_sdcard_unmount(SPECTER_ESP32P4_MEDIA_MOUNT_POINT, mounted_card);
     mounted_card = NULL;
+    sd_pwr_ctrl_del_on_chip_ldo(media_power);
+    media_power = NULL;
   }
 }
 

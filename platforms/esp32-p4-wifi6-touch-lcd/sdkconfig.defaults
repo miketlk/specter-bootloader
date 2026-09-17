@@ -38,3 +38,10 @@ CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x20
 # CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK is not set
 # CONFIG_BOOTLOADER_FACTORY_RESET is not set
 # CONFIG_BOOTLOADER_APP_TEST is not set
+
+# Upgrade names (specter_upgrade*.bin) cannot be represented as 8.3 aliases.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=128
+
+# secp256k1 known-answer tests and upgrade verification run in app_main.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

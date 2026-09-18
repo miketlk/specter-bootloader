@@ -2,6 +2,7 @@ set(repo_root "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 set(platform_common "${CMAKE_CURRENT_LIST_DIR}/../../common")
 
 idf_component_register(SRCS "bootloader_start.c"
+                            "${platform_common}/esp32p4_test_hooks.c"
                             "esp32p4_root_journal.c"
                             "${repo_root}/lib/crc32/crc32.c"
                        INCLUDE_DIRS "${platform_common}"

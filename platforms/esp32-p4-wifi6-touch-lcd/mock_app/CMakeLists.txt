@@ -24,6 +24,8 @@ set(generated_bloat "${CMAKE_CURRENT_BINARY_DIR}/mock_bloat.S")
 configure_file("${mock_dir}/mock_bloat.S.in" "${generated_bloat}" @ONLY)
 
 set(mock_sources
+    "${mock_dir}/mock_faults.c"
+    "${platform_dir}/common/esp32p4_test_hooks.c"
     "${mock_dir}/mock_main.c"
     "${mock_dir}/mock_screen.c"
     "${mock_dir}/mock_status.c"

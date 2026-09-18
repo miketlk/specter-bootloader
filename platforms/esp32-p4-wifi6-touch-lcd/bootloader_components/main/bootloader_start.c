@@ -189,6 +189,14 @@ static bool consume_request(specter_rtc_request_t* request) {
     return false;
   }
   memcpy(request, retained->custom, sizeof(*request));
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  ESP_LOGI("specter-test",
+           "RTC reason=%u raw=%08" PRIx32 ",%08" PRIx32 ",%08" PRIx32
+           ",%08" PRIx32 ",%08" PRIx32 ",%08" PRIx32 ",%08" PRIx32,
+           (unsigned)esp_rom_get_reset_reason(0), request->magic,
+           request->revision, (uint32_t)request->command, request->target,
+           request->sequence, request->argument, request->crc);
+#endif
   memset(retained->custom, 0, sizeof(retained->custom));
   return esp_rom_get_reset_reason(0) == RESET_REASON_CPU0_SW &&
          request->magic == SPECTER_RTC_REQUEST_MAGIC &&

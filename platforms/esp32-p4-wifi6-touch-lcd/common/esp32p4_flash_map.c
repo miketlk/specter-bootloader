@@ -9,6 +9,7 @@
 #include "bl_syscalls.h"
 #include "crc32.h"
 #include "esp32p4_platform.h"
+#include "esp32p4_test_hooks.h"
 #include "esp32p4_trailer.h"
 #include "esp_app_desc.h"
 #include "esp_flash.h"
@@ -31,6 +32,9 @@ static const specter_esp32p4_fixed_partition_t fixed_layout[] = {
 
 static const esp_partition_t* resolved[4];
 static bool candidate_invalidated[4];
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+static bool test_body_erased[4];
+#endif
 
 const specter_esp32p4_fixed_partition_t* specter_esp32p4_fixed_layout(
     size_t* count) {
@@ -52,6 +56,9 @@ static bool exact_partition_matches(
 bool specter_esp32p4_flash_map_init(void) {
   memset(resolved, 0, sizeof(resolved));
   memset(candidate_invalidated, 0, sizeof(candidate_invalidated));
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  memset(test_body_erased, 0, sizeof(test_body_erased));
+#endif
 
   for (size_t i = 0; i < sizeof(fixed_layout) / sizeof(fixed_layout[0]); ++i) {
     const specter_esp32p4_fixed_partition_t* expected = &fixed_layout[i];
@@ -211,8 +218,22 @@ bool blsys_flash_erase(bl_addr_t address, size_t size) {
   if (offset + erase_size > image_limit) {
     erase_size = image_limit - offset;
   }
-  return erase_size &&
-         ESP_OK == esp_partition_erase_range(part, offset, erase_size);
+  bool erased = erase_size &&
+                ESP_OK == esp_partition_erase_range(part, offset, erase_size);
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  if (erased) {
+    // Core erases Main's body before its first sector when a floor exists.
+    // Announce the whole-payload boundary only once both ranges are erased.
+    if (offset == 4096U && offset + erase_size == image_limit) {
+      test_body_erased[role] = true;
+    }
+    if (offset == 0U && (erase_size == image_limit ||
+                         (erase_size == 4096U && test_body_erased[role]))) {
+      specter_test_boundary(specter_test_erased, role, image_limit);
+    }
+  }
+#endif
+  return erased;
 }
 
 bool blsys_flash_read(bl_addr_t address, void* buffer, size_t length) {
@@ -235,7 +256,11 @@ bool blsys_flash_write(bl_addr_t address, const void* buffer, size_t length) {
       !prepare_candidate(role)) {
     return false;
   }
-  return ESP_OK == esp_partition_write(part, offset, buffer, length);
+  bool written = ESP_OK == esp_partition_write(part, offset, buffer, length);
+  if (written) {
+    specter_test_boundary(specter_test_copied, role, offset + length);
+  }
+  return written;
 }
 
 bool blsys_flash_crc32(uint32_t* crc, bl_addr_t address, size_t length) {

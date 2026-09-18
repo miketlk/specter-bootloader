@@ -7,6 +7,7 @@
 
 #include "bootloader_flash_priv.h"
 #include "crc32.h"
+#include "esp32p4_test_hooks.h"
 
 specter_boot_journal_state_t specter_root_journal_state(
     specter_esp32p4_role_t role, uint32_t sequence) {
@@ -76,7 +77,24 @@ bool specter_root_journal_append(specter_esp32p4_role_t role, uint32_t sequence,
   };
   const size_t prefix = offsetof(specter_boot_journal_record_t, commit_crc);
   record.commit_crc = crc32_fast(&record, prefix, 0U);
-  return bootloader_flash_write(offset, &record, prefix, false) == ESP_OK &&
-         bootloader_flash_write(offset + prefix, (uint8_t*)&record + prefix,
-                                sizeof(record) - prefix, false) == ESP_OK;
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  uint32_t hook = state == specter_journal_attempted
+                      ? specter_test_attempt_before
+                      : specter_test_confirm_before;
+  specter_test_boundary(hook, role, sequence);
+#endif
+  if (bootloader_flash_write(offset, &record, prefix, false) != ESP_OK) {
+    return false;
+  }
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  specter_test_boundary(hook + 1U, role, sequence);
+#endif
+  if (bootloader_flash_write(offset + prefix, (uint8_t*)&record + prefix,
+                             sizeof(record) - prefix, false) != ESP_OK) {
+    return false;
+  }
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  specter_test_boundary(hook + 2U, role, sequence);
+#endif
+  return true;
 }

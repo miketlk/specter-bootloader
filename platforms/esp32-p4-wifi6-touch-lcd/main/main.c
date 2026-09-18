@@ -12,7 +12,11 @@
 #include "crc32.h"
 #include "esp32p4_platform.h"
 #include "esp32p4_reset.h"
+#include "esp32p4_test_hooks.h"
 #include "esp32p4_trailer.h"
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+#include "esp_log.h"
+#endif
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 
@@ -23,6 +27,10 @@ static const char version_tag[] BL_ATTRS((used)) =
 
 void app_main(void) {
   bl_keep_variable(&version_tag);
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  ESP_LOGI("specter-test", "BOOT reset_reason=%u",
+           (unsigned)esp_reset_reason());
+#endif
 
   const esp_partition_t* running = esp_ota_get_running_partition();
   bool valid_boot_role =
@@ -39,9 +47,15 @@ void app_main(void) {
   specter_esp32p4_role_t running_role =
       running->address == SPECTER_BOOT_A_OFFSET ? specter_role_boot_a
                                                 : specter_role_boot_b;
+  specter_test_boundary(specter_test_app_entry, running_role, 0U);
   if (!blsys_init()) {
     blsys_fatal_error("Specter Bootloader initialization failed");
   }
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  if (specter_test_take(16U, running_role, 0U)) {
+    blsys_fatal_error("Injected initialization failure before confirmation");
+  }
+#endif
   specter_approval_record_t running_approval;
   if (!specter_esp32p4_approval_read(running_role, &running_approval, true)) {
     blsys_fatal_error("Running Specter Bootloader is not approved");
@@ -52,6 +66,16 @@ void app_main(void) {
   if (!running_trial && running_state != specter_journal_confirmed) {
     blsys_fatal_error("Specter Bootloader trial state is invalid");
   }
+#if CONFIG_SPECTER_E2E_TEST_HOOKS
+  if (!running_trial && specter_test_take(17U, running_role, 0U)) {
+    // Test setup only: enter an already approved Main while its SD repair
+    // package is staged. The next reset runs the normal core recovery path.
+    ESP_LOGW("specter-test", "FIXTURE_MAIN_HANDOFF approved Main only");
+    if (!blsys_start_firmware(SPECTER_MAIN_OFFSET, 0U)) {
+      blsys_fatal_error("Fixture Main handoff failed");
+    }
+  }
+#endif
   blsys_deinit();
 
   bl_args_t args;

@@ -13,6 +13,7 @@
 #include "bl_util.h"
 #include "crc32.h"
 #include "esp32p4_platform.h"
+#include "esp32p4_test_hooks.h"
 #include "esp_image_format.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -195,11 +196,13 @@ bool specter_esp32p4_approval_invalidate(specter_esp32p4_role_t role) {
   if (!reserve_sequence(role, previous_sequence)) {
     return false;
   }
+  specter_test_boundary(specter_test_reserved, role, 0U);
   // Invalidate approval before erasing trial history, including on power loss.
   if (ESP_OK != esp_partition_erase_range(partition, trailer_offset(partition),
                                           SPECTER_ESP32P4_TRAILER_SIZE)) {
     return false;
   }
+  specter_test_boundary(specter_test_invalidated, role, 0U);
   if (role == specter_role_main) {
     return true;
   }
@@ -259,21 +262,25 @@ static bool approval_create(specter_esp32p4_role_t role, uint32_t image_length,
     return false;
   }
 
+  specter_test_boundary(specter_test_validated, role, 0U);
   if (!firmware_version_floor_set(partition->address, semantic_version)) {
     return false;
   }
 
+  specter_test_boundary(specter_test_floor, role, 0U);
   const size_t offset = trailer_offset(partition);
   const size_t prefix_size = offsetof(specter_approval_record_t, commit_crc);
   if (!write_encrypted_granules(partition, offset, &record, prefix_size)) {
     return false;
   }
+  specter_test_boundary(specter_test_approval_prefix, role, 0U);
   record.commit_crc = record_crc(&record, prefix_size);
   if (!write_encrypted_granules(partition, offset + prefix_size,
                                 (const uint8_t*)&record + prefix_size,
                                 sizeof(record) - prefix_size)) {
     return false;
   }
+  specter_test_boundary(specter_test_approval_commit, role, 0U);
   specter_esp32p4_candidate_committed(role);
   pending_sequence[role] = 0U;
 

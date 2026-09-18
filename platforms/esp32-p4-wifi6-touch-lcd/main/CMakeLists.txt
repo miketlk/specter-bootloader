@@ -20,6 +20,7 @@ set(core_sources
     "${repo_root}/core/bl_util.c"
     "${repo_root}/core/bootloader.c")
 set(platform_sources
+    "${platform_dir}/common/esp32p4_test_hooks.c"
     "${platform_dir}/common/bl_syscalls_esp32p4.c"
     "${platform_dir}/common/display_hal.c"
     "${platform_dir}/common/esp32p4_flash_map.c"

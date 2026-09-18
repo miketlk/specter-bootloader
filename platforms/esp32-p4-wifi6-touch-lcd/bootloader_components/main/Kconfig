@@ -14,3 +14,13 @@ choice SPECTER_ROOT_VALIDATION_TARGET
     config SPECTER_ROOT_VALIDATION_TARGET_MAIN
         bool "main"
 endchoice
+
+config SPECTER_E2E_TEST_HOOKS
+    bool "Enable one-shot plaintext development fault hooks"
+    default n
+    depends on !SECURE_BOOT && !SECURE_FLASH_ENC_ENABLED
+    help
+        Reserved for hardware testing. A CRC-checked fixture at 0x622000
+        selects one boundary; the hook consumes it and pauses for ten seconds.
+        The test harness must reserve and restore that otherwise unused sector.
+        Never enable this in release firmware.

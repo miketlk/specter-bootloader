@@ -106,6 +106,17 @@ static bool reserve_sequence(specter_esp32p4_role_t role,
   if (ESP_OK == result && previous_sequence > current) {
     current = previous_sequence;
   }
+  // Provisioned approvals can outlive the NVS counter. Include every role
+  // before invalidating the destination; image validity does not erase history.
+  for (specter_esp32p4_role_t existing_role = specter_role_boot_a;
+       ESP_OK == result && existing_role <= specter_role_main;
+       ++existing_role) {
+    specter_approval_record_t existing;
+    if (specter_esp32p4_approval_read(existing_role, &existing, false) &&
+        existing.sequence > current) {
+      current = existing.sequence;
+    }
+  }
   if (ESP_OK == result && current == UINT32_MAX) {
     result = ESP_ERR_INVALID_STATE;
   }

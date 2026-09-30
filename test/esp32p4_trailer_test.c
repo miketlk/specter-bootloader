@@ -18,6 +18,8 @@
 #include "../platforms/esp32-p4-wifi6-touch-lcd/bootloader_components/main/esp32p4_root_journal.c"
 
 static uint32_t saved_floor;
+static uint32_t saved_sequence;
+static specter_approval_record_t saved_approvals[4];
 static esp_err_t storage_error;
 static unsigned storage_writes;
 static unsigned image_verifications;
@@ -85,6 +87,8 @@ void esp_test_storage_reset(void) {
   esp_test_approval_erased = false;
   esp_test_approval_erase_attempts = esp_test_journal_erase_attempts = 0U;
   saved_floor = 0U;
+  saved_sequence = 0U;
+  memset(saved_approvals, 0xff, sizeof(saved_approvals));
   storage_error = ESP_OK;
   storage_writes = image_verifications = 0U;
   memset(pending_sequence, 0, sizeof(pending_sequence));
@@ -116,6 +120,31 @@ void esp_test_storage_fail(bool fail) {
 unsigned esp_test_storage_writes(void) { return storage_writes; }
 unsigned esp_test_image_verifications(void) { return image_verifications; }
 
+void esp_test_sequence_counter(uint32_t sequence) { saved_sequence = sequence; }
+
+uint32_t esp_test_pending_sequence(specter_esp32p4_role_t role) {
+  return pending_sequence[role];
+}
+
+void esp_test_sequence_approval(specter_esp32p4_role_t role, uint32_t sequence,
+                                bool committed) {
+  specter_approval_record_t record = {
+      .magic = SPECTER_APPROVAL_MAGIC,
+      .revision = SPECTER_APPROVAL_REVISION,
+      .record_size = sizeof(record),
+      .role = role,
+      .semantic_version = 100000099U,
+      .image_length = 4096U,
+      .sequence = sequence,
+      .status = SPECTER_APPROVAL_STATUS_APPROVED,
+  };
+  strcpy(record.platform, specter_esp32p4_platform_id());
+  record.commit_crc =
+      record_crc(&record, offsetof(specter_approval_record_t, commit_crc));
+  if (!committed) record.commit_crc ^= 1U;
+  saved_approvals[role] = record;
+}
+
 esp_err_t nvs_open(const char* name, int mode, nvs_handle_t* handle) {
   (void)name;
   (void)mode;
@@ -125,16 +154,18 @@ esp_err_t nvs_open(const char* name, int mode, nvs_handle_t* handle) {
 
 esp_err_t nvs_get_u32(nvs_handle_t handle, const char* key, uint32_t* value) {
   (void)handle;
-  (void)key;
-  *value = saved_floor;
-  return saved_floor ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
+  *value = strcmp(key, "approval_seq") == 0 ? saved_sequence : saved_floor;
+  return *value ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
 }
 
 esp_err_t nvs_set_u32(nvs_handle_t handle, const char* key, uint32_t value) {
   (void)handle;
-  (void)key;
   ++storage_writes;
-  saved_floor = value;
+  if (strcmp(key, "approval_seq") == 0) {
+    saved_sequence = value;
+  } else {
+    saved_floor = value;
+  }
   return ESP_OK;
 }
 
@@ -199,6 +230,13 @@ esp_err_t esp_partition_read(const esp_partition_t* partition, size_t offset,
   (void)offset;
   if (partition == &journal_partition && !partition->encrypted) {
     return esp_partition_read_raw(partition, offset, data, size);
+  }
+  specter_esp32p4_role_t role =
+      specter_esp32p4_role_for_base(partition->address);
+  if (role != specter_role_invalid && offset == trailer_offset(partition) &&
+      size == sizeof(saved_approvals[role])) {
+    memcpy(data, &saved_approvals[role], size);
+    return ESP_OK;
   }
   memset(data, 0xff, size);
   return ESP_OK;

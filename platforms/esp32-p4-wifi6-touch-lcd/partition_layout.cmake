@@ -3,7 +3,10 @@
 set(SPECTER_ROOT_LOADER_PARTITION_SIZE 0x20000)
 set(SPECTER_BOOTLOADER_PARTITION_SIZE 0x100000)
 set(SPECTER_MAIN_PARTITION_SIZE 0x400000)
-set(SPECTER_MAIN_AUX_PARTITION_SIZE 0x400000)
+# A zero-sized optional partition is a disabled layout provision. The layout
+# generator drops it from the ESP-IDF partition CSV rather than emitting a
+# zero-sized entry, which ESP-IDF could interpret incorrectly.
+set(SPECTER_MAIN_AUX_PARTITION_SIZE 0x0)
 
 math(EXPR SPECTER_BOOT_A_OFFSET
      "${SPECTER_ROOT_LOADER_PARTITION_SIZE}"

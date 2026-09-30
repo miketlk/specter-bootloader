@@ -1,170 +1,142 @@
-# ESP32-P4 Waveshare Platform — Phase 2 Validation
+# ESP32-P4 Waveshare Platform
 
-This directory contains the Phase 2 toolchain and Root Loader validation
-project for the Waveshare 4.3-inch and 5-inch ESP32-P4 boards. It is not yet a
-complete Specter Bootloader port: platform syscalls, approval trailers,
-trial/confirmation state, SDMMC, display, and touch are later phases.
+This directory contains the ESP-IDF project and Root Loader scaffold for the
+Waveshare 4.3-inch and 5-inch ESP32-P4 boards. The current application is a
+toolchain, partition-layout, and exact-load validator; it is not yet a complete
+Specter Bootloader port. Platform syscalls, approval trailers, trial and
+confirmation state, SDMMC, display, and touch support are implemented in later
+port phases.
 
-## Pinned build entry points
+## Pinned build environment
 
-All commands go through `tools/idf.sh`. The wrapper rejects an ambient
+All project commands go through `tools/idf.sh`. The wrapper rejects an ambient
 `IDF_PATH`, verifies that `third_party/esp-idf` matches the repository gitlink,
-rejects a dirty IDF checkout, exports that checkout, and invokes its `idf.py`.
-The current gitlink is ESP-IDF v5.5.5
-(`b774170ff46c393eeb5e495ea37936038d3f4f4f`).
+rejects a dirty ESP-IDF checkout, exports that checkout, and invokes its
+`idf.py`. The pinned release is ESP-IDF v5.5.5 at
+`b774170ff46c393eeb5e495ea37936038d3f4f4f`.
 
-Initialize a checkout recursively, install the matching tools once, and build:
+Initialize a checkout recursively, install the matching toolchain once, and
+build a validation target:
 
 ```sh
 git submodule update --init --recursive
 third_party/esp-idf/install.sh esp32p4
-platforms/esp32-p4-wifi6-touch-lcd/tools/build.sh plaintext-dev boot-a build size
+platforms/esp32-p4-wifi6-touch-lcd/tools/build.sh \
+  plaintext-dev boot-a build size
 ```
 
-Profiles are composed from the checked-in defaults:
+The build profiles are:
 
-- `plaintext-dev`: the only development/hardware-bring-up profile. It keeps
-  flash encryption, Secure Boot, anti-rollback, ROM-download changes, JTAG
-  changes, and ROM-log eFuse changes disabled. Its configure-time safety gate
-  rejects a stale or edited `sdkconfig` that enables any known irreversible
-  startup setting.
-- `encrypted-production`: full release-mode encryption and permanent UART ROM
-  download disable on first hardware boot. Do not flash this profile during
-  bring-up. Flash encryption necessarily burns its key, enable bits, JTAG
-  disable, direct-boot disable, and related security eFuses; this profile is
-  compiled only for Phase 2 and belongs to the later audited provisioning
-  workflow.
+- `plaintext-dev`: the only development and hardware-bring-up profile. It
+  rejects flash encryption, Secure Boot, anti-rollback, ROM-download changes,
+  JTAG changes, and ROM-log eFuse changes.
+- `encrypted-production`: a compile-only release profile during development.
+  It enables settings that can burn irreversible security eFuses when booted
+  on hardware. Do not flash this profile during bring-up.
 
-There is deliberately no encrypted development profile. ESP32-P4 hardware
-flash encryption requires physical eFuse programming, so it cannot meet the
-development requirement that every MCU change remain reversible.
+There is no encrypted development profile because ESP32-P4 hardware flash
+encryption requires irreversible eFuse programming.
 
-The `boot-a`, `boot-b`, and `main` build variants prove that the custom loader
-can select each fixed role. The override validates all exact label, type,
-subtype, offset, and size tuples; rejects `otadata` and unexpected app
-partitions; and gives the stock ESP-IDF handoff routine an isolated state that
-contains only the chosen partition. Thus a bad target cannot invoke stock
-fallback to a different image. Deep-sleep validation skipping, generic OTA
-rollback, factory-reset selection, test-app selection, and TEE loading are off.
-The generated `flash`, `app-flash`, `flash_args`, and `flasher_args.json`
-artifacts place the validation application in the selected role: `boot_a` at
-`0x20000`, `boot_b` at `0x120000`, or `main` at `0x220000`.
+## Exact-load validation
 
-Run all local compile/size checks with:
+The `boot-a`, `boot-b`, and `main` variants prove that the custom Root Loader
+can select each fixed application role. The override checks every allowed
+partition's exact label, type, subtype, offset, and size; rejects `otadata` and
+unexpected application partitions; and gives the stock ESP-IDF handoff path an
+isolated state containing only the selected partition.
+
+The generated flash metadata places the validation application at:
+
+| Role | Offset |
+| --- | ---: |
+| `boot_a` | `0x020000` |
+| `boot_b` | `0x120000` |
+| `main` | `0x220000` |
+
+This compile-time target selection is validation scaffolding. Production Root
+Loader selection must additionally implement approval records, image hashes,
+reset-retained requests, and bootloader trial and fallback state.
+
+Run the complete local compile, size, layout, configuration, dependency, and
+Root Loader checks with:
 
 ```sh
 platforms/esp32-p4-wifi6-touch-lcd/tools/validate.sh
 ```
 
-The validated host toolchain is ESP-IDF v5.5.5 with
-`riscv32-esp-elf-gcc 14.2.0`. Plaintext `boot-a`, `boot-b`, and `main`
-variants build, as does the compile-only encrypted production `boot-a`
-variant. The validation application binaries are `0x2e510` bytes plaintext and
-`0x2fdb0` bytes encrypted. The custom Root Loader is `0x59c0` bytes plaintext
-for `boot_a` (`0x59d0` for the OTA-role variants) and `0x8a30` bytes encrypted.
-Run `tools/diff-root-loader.sh` to review the complete delta from the pinned
-stock source. `esptool image-info` identifies the app as ESP32-P4, 16 MiB
-flash, 64 KiB MMU pages, and reports both its checksum and appended SHA-256
-validation hash as valid.
+Run `tools/diff-root-loader.sh` to inspect the complete delta from the pinned
+stock `bootloader_start.c`.
 
-## Provisional layout
+## Flash layout
 
-Phase 2 uses 16 MiB as the minimum supported physical flash size and as the
-portable logical address window. ESP-IDF rejects a chip smaller than the image
-header but accepts a larger chip; on larger modules this image deliberately
-uses only the first 16 MiB and leaves the remaining capacity untouched. Header
-auto-detection is disabled so flashing a larger unit cannot produce a
-unit-specific artifact. The validation application reports both ESP-IDF's
-configured size and `esp_flash_get_physical_size()` so 16, 32, and 64 MiB
-modules can be distinguished during hardware validation.
+The image uses a portable 16 MiB logical flash window. Both validated boards
+have 32 MiB physical flash, but capacity above the logical window remains
+unused so one release image works on every supported board with at least
+16 MiB.
 
-`partition_layout.cmake` is the single source for the Root Loader and Specter
-Bootloader partition sizes. `build.sh` derives the `boot_a`, `boot_b`, and
-`main` offsets from those constants and generates a build-local partition CSV;
-the Root Loader allow-list is compiled from the same derived values.
+`partition_layout.cmake` is the single source for application partition sizes.
+The build derives the offsets, generates a build-local partition CSV, and
+compiles the same values into the Root Loader allow-list.
 
-| Role | Type/subtype | Offset | Partition size | Phase 2 max image |
+| Role | Type/subtype | Offset | Partition size | Maximum image |
 | --- | --- | ---: | ---: | ---: |
 | `boot_a` | `app,factory` | `0x020000` | 1 MiB | 1 MiB - 4 KiB |
 | `boot_b` | `app,ota_0` | `0x120000` | 1 MiB | 1 MiB - 4 KiB |
 | `main` | `app,ota_1` | `0x220000` | 4 MiB | 4 MiB - 4 KiB |
-| `main_aux` | `data,0x40` | `0x620000` | 4 MiB | unused |
+| `main_aux` | `data,0x40` | `0x620000` | 0 (disabled) | not emitted |
 
-The last 4 KiB of each app partition is reserved for the later approval/trial
-trailer. `main_aux` is encrypted when encryption is enabled, is not an app
-partition, and is absent from the Root Loader allow-list.
+The final 4 KiB sector of each application partition is reserved outside the
+ESP-IDF image for its approval record and, for bootloader slots, the trial
+journal. `main_aux` is a provision for a future extension. While its canonical
+size is zero, the layout generator drops it from the ESP-IDF partition CSV, so
+it reserves no flash and is not present on devices. Enabling it later requires
+assigning a nonzero size and reviewing the resulting layout. It is not a second
+Main Firmware slot or a TEE partition.
 
-ESP32-P4 fixes the Root Loader offset at `0x2000`. The partition table is moved
-to `0x10000`: the stock encryption path makes the Phase 2 Root Loader `0x8a70`
-bytes, which cannot fit before the default `0x8000` table. The new offset leaves
-56 KiB for the second stage and keeps the first app 64 KiB-aligned at `0x20000`.
-Every build checks the generated bootloader against this limit.
+ESP32-P4 fixes the Root Loader offset at `0x2000`. The partition table is at
+`0x10000`, leaving 56 KiB for the second stage and keeping `boot_a` aligned at
+`0x20000`. Every build checks the generated Root Loader against this limit.
 
-## Validation matrix
+## Validated toolchains
 
-The repeatable commands are:
+The release comparison was run with clean temporary project and build trees;
+the archived Waveshare sources and pinned submodule were not modified.
 
-```sh
-# Both vendor display examples (copies to a temporary tree before resolving components)
-platforms/esp32-p4-wifi6-touch-lcd/tools/validate-waveshare.sh
+| ESP-IDF | Display-example result | 4.3-inch image | 5-inch image |
+| --- | --- | ---: | ---: |
+| v5.5.4 (`735507283d5b2f9fb363a1901172dbd9e847945d`) | both build unchanged | 292,998 B | 259,232 B |
+| v5.5.5 (`b774170ff46c393eeb5e495ea37936038d3f4f4f`) | both build unchanged | 295,050 B | 260,896 B |
+| v6.0.2 (`7101770dc6db2667b3c477cc31365dd1acd6db4e`) | both build with a disposable compatibility shim | 264,388 B | 230,442 B |
 
-# Disposable upstream TEE sizing experiment; TEE remains out of the product
-platforms/esp32-p4-wifi6-touch-lcd/tools/validate-tee-sizing.sh
+The v6.0.2-only shim was applied to temporary copies. It removed the obsolete
+ESP-IDF unit-test component path, added `espressif/usb` 1.5.0, declared the
+split GPIO, I2C, I2S, SPI, SDMMC, and LEDC dependencies, and translated LCD
+configuration fields removed in ESP-IDF 6. These results prove source
+compatibility after narrow adaptations, not display operation on hardware.
 
-# QEMU is invoked from the pinned IDF wrapper after a plaintext build
-platforms/esp32-p4-wifi6-touch-lcd/tools/idf.sh \
-  -C platforms/esp32-p4-wifi6-touch-lcd \
-  -B build/esp32-p4-wifi6-touch-lcd/plaintext-dev-boot-a qemu monitor
-```
+The pinned v5.5.5 project uses `riscv32-esp-elf-gcc` 14.2.0. The three
+plaintext target variants and the compile-only encrypted-production variant
+build successfully. The validation application is `0x2e510` bytes plaintext
+and `0x2fdb0` bytes encrypted. Root Loader is `0x59c0` bytes for plaintext
+`boot_a`, `0x59d0` bytes for the plaintext OTA roles, and `0x8a30` bytes for
+encrypted `boot_a`.
 
-The pinned ESP-IDF rejects that command with `QEMU is not supported for target
-esp32p4`. Consequently no CPU-startup smoke test is available for ESP32-P4 in
-v5.5.5. If upstream adds support, QEMU will still validate only CPU startup,
-the partition table, and serial boot flow—not Waveshare MIPI DSI, GT911,
-backlight, SDMMC, USB wiring, real flash capacity, PSRAM signal integrity, or
-irreversible eFuse behavior.
+ESP-IDF v5.5.5 does not support ESP32-P4 QEMU. QEMU therefore cannot provide a
+CPU-startup smoke test for the pinned release and, if support is added later,
+will not replace physical validation of MIPI DSI, GT911, backlight, SDMMC,
+USB-UART wiring, flash capacity, or PSRAM.
 
-Both vendor `07_Displaycolorbar` examples build unchanged with ESP-IDF v5.5.5.
-The validator copies each archived example to a temporary tree, gives it a
-fresh build directory and generated `sdkconfig`, and resolves its declared
-dependencies without editing `CMakeLists.txt` or injecting a registry `usb`
-component. The 4.3-inch application binary is `0x48210` bytes and the 5-inch
-binary is `0x3fca0` bytes. The component manager resolved these common versions
-for both boards:
+## Hardware validation
 
-| Component | Version |
-| --- | --- |
-| `espressif/button` | 4.2.0 |
-| `espressif/cmake_utilities` | 0.5.3 |
-| `espressif/esp_codec_dev` | 1.2.0 |
-| `espressif/esp_lcd_touch` | 1.2.1 |
-| `espressif/esp_lcd_touch_gt911` | 1.2.0~2 |
-| `espressif/esp_lv_decoder` | 0.4.3 |
-| `espressif/esp_lv_fs` | 1.0.1 |
-| `espressif/esp_lvgl_adapter` | 0.1.4 |
-| `espressif/esp_mmap_assets` | 2.0.0 |
-| `espressif/esp_new_jpeg` | 1.0.2 |
-| `espressif/freetype` | 2.14.2 |
-| `espressif/knob` | 1.1.0 |
-| `espressif/libpng` | 1.6.58 |
-| `espressif/zlib` | 1.3.2 |
-| `lvgl/lvgl` | 9.4.0 |
+Plaintext exact-load validation completed on both supported boards. No eFuses
+were burned; Secure Boot and flash encryption remained disabled.
 
-The 4.3-inch example additionally resolves `esp_lcd_st7701` 2.0.2~2. The
-5-inch example additionally resolves `i2c_bus` 1.5.2 and includes its local
-`esp_lcd_hx8394` 1.0.3 component. Exact hashes and direct dependency sets are
-written to the per-board lock files under the run-log directory.
+| Board | Chip revision | Configured flash | Physical flash | PSRAM | Exact-load roles |
+| --- | --- | ---: | ---: | ---: | --- |
+| Waveshare 4.3-C | ESP32-P4 v1.3 | 16 MiB | 32 MiB | 32 MiB | `boot_a`, `boot_b`, `main` |
+| Waveshare 5-C | ESP32-P4 v1.3 | 16 MiB | 32 MiB | 32 MiB | `boot_a`, `boot_b`, `main` |
 
-The disposable TEE command is also deliberately retained as a capability
-probe. ESP-IDF v5.5.5 reports that ESP-TEE supports only ESP32-C6, H2, and C5,
-then rejects the P4 build because `esp_tee` is not registered for that target.
-TEE image sizes, MMU alignment, partition requirements, and eFuse key-block
-needs therefore cannot be measured for ESP32-P4 with the pinned release; no
-TEE partitions or code are included in Phase 2.
-
-Hardware measurements are currently blocked because neither Waveshare board
-appears as a serial port on the validation host.
-Never run flash, erase, or eFuse commands merely to complete this phase. Record
-the board SKU, flash JEDEC ID/capacity, configured and physical flash-size
-results, PSRAM size, chip revision, and tool versions when hardware is
-deliberately attached.
+All six runs reached the selected partition and emitted
+`SPECTER_PHASE2_OK`. This validates flash sizing, PSRAM initialization, and
+Root Loader handoff; display, touch, and SDMMC still require their dedicated
+board-support validation.

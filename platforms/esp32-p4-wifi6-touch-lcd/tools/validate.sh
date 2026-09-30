@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# This project uses only components from the pinned ESP-IDF checkout and this
+# source tree. Disabling the component manager avoids its unnecessary psutil
+# process-tree lookup, which macOS sandboxes reject because it calls sysctl.
+export IDF_COMPONENT_MANAGER=0
+
 platform_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 repo_root=$(CDPATH= cd -- "$platform_dir/../.." && pwd -P)
 run_root=$(mktemp -d "${TMPDIR:-/tmp}/specter-esp32-p4-validation.XXXXXX")
@@ -40,12 +45,33 @@ while IFS=, read -r name type subtype offset size flags; do
     0x*:0x*) ;;
     *) continue ;;
   esac
-  partition_end=$(($(printf '%d' "$offset") + $(printf '%d' "$size")))
+  partition_bytes=$(printf '%d' "$size")
+  if [ "$partition_bytes" -eq 0 ]; then
+    echo "error: zero-sized partition $name was not dropped from the generated layout" >&2
+    exit 1
+  fi
+  partition_end=$(($(printf '%d' "$offset") + partition_bytes))
   if [ "$partition_end" -gt "$portable_flash_bytes" ]; then
     echo "error: partition $name exceeds the portable 16 MiB flash window" >&2
     exit 1
   fi
 done < "$partition_csv"
+
+layout_metadata="$repo_root/build/esp32-p4-wifi6-touch-lcd/plaintext-dev-boot-a/partition-layout/layout.metadata"
+main_aux_size=$(awk -F= '$1 == "main_aux_size" {print $2}' "$layout_metadata")
+if [ -z "$main_aux_size" ]; then
+  echo "error: generated layout metadata does not define main_aux_size" >&2
+  exit 1
+fi
+if [ "$(printf '%d' "$main_aux_size")" -eq 0 ]; then
+  if rg -q '^[[:space:]]*main_aux[[:space:]]*,' "$partition_csv"; then
+    echo "error: disabled zero-sized main_aux partition was not dropped" >&2
+    exit 1
+  fi
+elif ! rg -q '^[[:space:]]*main_aux[[:space:]]*,' "$partition_csv"; then
+  echo "error: enabled main_aux partition is missing from the generated layout" >&2
+  exit 1
+fi
 
 for build in plaintext-dev-boot-a encrypted-production-boot-a; do
   image="$repo_root/build/esp32-p4-wifi6-touch-lcd/$build/specter_esp32p4_phase2_validation.bin"

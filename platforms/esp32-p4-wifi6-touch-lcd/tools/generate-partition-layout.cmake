@@ -5,11 +5,22 @@ endif()
 include("${SPECTER_PLATFORM_DIR}/partition_layout.cmake")
 file(MAKE_DIRECTORY "${SPECTER_LAYOUT_OUTPUT_DIR}")
 
+# ESP-IDF partition CSVs do not have a portable zero-size "disabled" form.
+# Drop an optional partition whose canonical size is zero; emit it only after
+# a future layout change assigns it real space.
+set(SPECTER_MAIN_AUX_PARTITION "")
+if(SPECTER_MAIN_AUX_PARTITION_SIZE GREATER 0)
+    set(SPECTER_MAIN_AUX_PARTITION
+        "main_aux,   data, 0x40,    ${SPECTER_MAIN_AUX_OFFSET}, ${SPECTER_MAIN_AUX_PARTITION_SIZE}, encrypted")
+endif()
+
 set(SPECTER_PARTITION_CSV "${SPECTER_LAYOUT_OUTPUT_DIR}/partitions.csv")
 configure_file(
     "${SPECTER_PLATFORM_DIR}/partitions.csv.in"
     "${SPECTER_PARTITION_CSV}"
     @ONLY)
+file(WRITE "${SPECTER_LAYOUT_OUTPUT_DIR}/layout.metadata"
+    "main_aux_size=${SPECTER_MAIN_AUX_PARTITION_SIZE}\n")
 configure_file(
     "${SPECTER_PLATFORM_DIR}/sdkconfig.defaults.layout.in"
     "${SPECTER_LAYOUT_OUTPUT_DIR}/sdkconfig.defaults"

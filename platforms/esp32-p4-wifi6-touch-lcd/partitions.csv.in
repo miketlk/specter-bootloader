@@ -1,0 +1,8 @@
+# Portable 16 MiB logical layout. Larger physical chips are supported, but
+# capacity above 16 MiB is deliberately unused by this image.
+# Name,     Type, SubType, Offset,                   Size,                                      Flags
+nvs,        data, nvs,     0x011000,                 0x00f000,                                  encrypted
+boot_a,     app,  factory, @SPECTER_BOOT_A_OFFSET@,  @SPECTER_BOOTLOADER_PARTITION_SIZE@,
+boot_b,     app,  ota_0,   @SPECTER_BOOT_B_OFFSET@,  @SPECTER_BOOTLOADER_PARTITION_SIZE@,
+main,       app,  ota_1,   @SPECTER_MAIN_OFFSET@,    @SPECTER_MAIN_PARTITION_SIZE@,
+main_aux,   data, 0x40,    @SPECTER_MAIN_AUX_OFFSET@, @SPECTER_MAIN_AUX_PARTITION_SIZE@,         encrypted

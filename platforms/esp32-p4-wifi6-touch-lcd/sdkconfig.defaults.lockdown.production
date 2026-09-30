@@ -1,0 +1,4 @@
+# With release-mode encryption, permanently disable UART ROM download on first
+# application startup. Remaining ESP32-P4 JTAG/direct-boot/USB eFuses are burned
+# and audited by the later host-side provisioning workflow, after recovery tests.
+CONFIG_SECURE_DISABLE_ROM_DL_MODE=y

@@ -1,0 +1,87 @@
+cmake_minimum_required(VERSION 3.22)
+
+# Keep the Phase 2 validation application deliberately small. The custom
+# second-stage loader is discovered separately through bootloader_components/.
+set(COMPONENTS main)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(specter_esp32p4_phase2_validation)
+
+include("${CMAKE_CURRENT_LIST_DIR}/partition_layout.cmake")
+
+# Irreversible settings are rejected by default, including when idf.py is
+# invoked directly. Only the explicit production profile opts out. Keep this
+# list synchronized with the pinned ESP-IDF eFuse startup code.
+if(NOT SPECTER_ALLOW_IRREVERSIBLE_CONFIG)
+    set(irreversible_configs
+        CONFIG_SECURE_FLASH_ENC_ENABLED
+        CONFIG_SECURE_BOOT
+        CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
+        CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK
+        CONFIG_SECURE_DISABLE_ROM_DL_MODE
+        CONFIG_SECURE_ENABLE_SECURE_ROM_DL_MODE
+        CONFIG_BOOT_ROM_LOG_ALWAYS_OFF
+        CONFIG_BOOT_ROM_LOG_ON_GPIO_HIGH
+        CONFIG_BOOT_ROM_LOG_ON_GPIO_LOW
+        CONFIG_ESP_CRYPTO_FORCE_ECC_CONSTANT_TIME_POINT_MUL
+        CONFIG_ESP_ECDSA_ENABLE_P192_CURVE)
+
+    foreach(config IN LISTS irreversible_configs)
+        if(${config})
+            message(FATAL_ERROR
+                "Development builds must not enable irreversible setting ${config}")
+        endif()
+    endforeach()
+endif()
+
+# ESP-IDF normally flashes the application to --partition-boot-default, which
+# is always boot_a because it is the factory partition. Phase 2 builds the Root
+# Loader for one exact validation target, so keep the standard flash/app-flash
+# targets but move their application entry to the matching fixed role.
+if(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_BOOT_A)
+    set(specter_validation_partition boot_a)
+    set(specter_expected_validation_offset ${SPECTER_BOOT_A_OFFSET})
+elseif(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_BOOT_B)
+    set(specter_validation_partition boot_b)
+    set(specter_expected_validation_offset ${SPECTER_BOOT_B_OFFSET})
+elseif(CONFIG_SPECTER_ROOT_VALIDATION_TARGET_MAIN)
+    set(specter_validation_partition main)
+    set(specter_expected_validation_offset ${SPECTER_MAIN_OFFSET})
+else()
+    message(FATAL_ERROR "No Phase 2 Root Loader validation target is selected")
+endif()
+
+partition_table_get_partition_info(
+    specter_validation_offset
+    "--partition-name ${specter_validation_partition}"
+    "offset")
+math(EXPR specter_validation_offset_delta
+     "${specter_validation_offset} - ${specter_expected_validation_offset}")
+if(NOT specter_validation_offset_delta EQUAL 0)
+    message(FATAL_ERROR
+        "Generated ${specter_validation_partition} offset does not match partition_layout.cmake")
+endif()
+idf_build_get_property(specter_build_dir BUILD_DIR)
+set(specter_project_bin "${PROJECT_BIN}")
+
+function(specter_remove_default_app target_name)
+    foreach(property_name FLASH_FILE FLASH_ENTRY IMAGES)
+        get_property(property_values TARGET ${target_name} PROPERTY ${property_name})
+        set(filtered_values)
+        foreach(property_value IN LISTS property_values)
+            string(FIND "${property_value}" "${specter_project_bin}" app_entry)
+            if(app_entry EQUAL -1)
+                list(APPEND filtered_values "${property_value}")
+            endif()
+        endforeach()
+        set_property(TARGET ${target_name} PROPERTY ${property_name}
+                     "${filtered_values}")
+    endforeach()
+endfunction()
+
+foreach(flash_target flash app-flash)
+    specter_remove_default_app(${flash_target})
+    esptool_py_flash_target_image(
+        ${flash_target} app "${specter_validation_offset}"
+        "${specter_build_dir}/${specter_project_bin}" ALWAYS_PLAINTEXT)
+endforeach()

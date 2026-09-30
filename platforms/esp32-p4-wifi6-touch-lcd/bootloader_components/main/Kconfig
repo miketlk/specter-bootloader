@@ -1,0 +1,17 @@
+choice SPECTER_ROOT_VALIDATION_TARGET
+    prompt "Phase 2 exact-load validation target"
+    default SPECTER_ROOT_VALIDATION_TARGET_BOOT_A
+    help
+        Select one fixed application role for the Phase 2 Root Loader smoke
+        build. Production selection, approval records, and trial state are
+        implemented in later port phases.
+
+    config SPECTER_ROOT_VALIDATION_TARGET_BOOT_A
+        bool "boot_a"
+
+    config SPECTER_ROOT_VALIDATION_TARGET_BOOT_B
+        bool "boot_b"
+
+    config SPECTER_ROOT_VALIDATION_TARGET_MAIN
+        bool "main"
+endchoice

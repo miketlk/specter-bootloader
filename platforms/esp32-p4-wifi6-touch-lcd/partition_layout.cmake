@@ -1,0 +1,27 @@
+# Canonical Phase 2 application partition sizes. Derive offsets and generated
+# partition data from these values; do not duplicate their numeric values.
+set(SPECTER_ROOT_LOADER_PARTITION_SIZE 0x20000)
+set(SPECTER_BOOTLOADER_PARTITION_SIZE 0x100000)
+set(SPECTER_MAIN_PARTITION_SIZE 0x400000)
+set(SPECTER_MAIN_AUX_PARTITION_SIZE 0x400000)
+
+math(EXPR SPECTER_BOOT_A_OFFSET
+     "${SPECTER_ROOT_LOADER_PARTITION_SIZE}"
+     OUTPUT_FORMAT HEXADECIMAL)
+math(EXPR SPECTER_BOOT_B_OFFSET
+     "${SPECTER_ROOT_LOADER_PARTITION_SIZE} + ${SPECTER_BOOTLOADER_PARTITION_SIZE}"
+     OUTPUT_FORMAT HEXADECIMAL)
+math(EXPR SPECTER_MAIN_OFFSET
+     "${SPECTER_ROOT_LOADER_PARTITION_SIZE} + (2 * ${SPECTER_BOOTLOADER_PARTITION_SIZE})"
+     OUTPUT_FORMAT HEXADECIMAL)
+math(EXPR SPECTER_MAIN_AUX_OFFSET
+     "${SPECTER_MAIN_OFFSET} + ${SPECTER_MAIN_PARTITION_SIZE}"
+     OUTPUT_FORMAT HEXADECIMAL)
+
+foreach(app_offset IN ITEMS
+        SPECTER_BOOT_A_OFFSET SPECTER_BOOT_B_OFFSET SPECTER_MAIN_OFFSET)
+    math(EXPR app_alignment_remainder "${${app_offset}} % 0x10000")
+    if(NOT app_alignment_remainder EQUAL 0)
+        message(FATAL_ERROR "${app_offset} must be 64 KiB aligned")
+    endif()
+endforeach()

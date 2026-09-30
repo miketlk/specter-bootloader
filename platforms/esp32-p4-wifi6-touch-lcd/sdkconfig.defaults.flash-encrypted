@@ -1,0 +1,6 @@
+# Full-partition, release-mode flash encryption. First boot on real hardware is
+# irreversible; Phase 2 only compiles this profile.
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_AES256=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+# CONFIG_SECURE_FLASH_ENCRYPT_ONLY_IMAGE_LEN_IN_APP_PART is not set

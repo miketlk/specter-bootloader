@@ -1,0 +1,2 @@
+# Plaintext provisioning profile. This must not burn flash-encryption eFuses.
+# CONFIG_SECURE_FLASH_ENC_ENABLED is not set

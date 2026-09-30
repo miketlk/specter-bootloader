@@ -7,3 +7,9 @@ __pycache__
 *.bin
 *.hex
 tools/requirements.in
+
+# ESP-IDF state generated when commands are run without an external build dir.
+/platforms/esp32-p4-wifi6-touch-lcd/sdkconfig
+/platforms/esp32-p4-wifi6-touch-lcd/sdkconfig.old
+/platforms/esp32-p4-wifi6-touch-lcd/managed_components/
+/platforms/esp32-p4-wifi6-touch-lcd/dependencies.lock
